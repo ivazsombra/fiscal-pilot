@@ -29,7 +29,7 @@ MODEL_CHAT = os.environ.get("MODEL_CHAT", "gpt-4.1-mini")  # puedes cambiarlo
 
 PLAN_ADVANCED_ENABLED = False  # por decisión del piloto
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 signer = URLSafeSerializer(SESSION_SECRET, salt="session-v1")
 
 app = FastAPI()
