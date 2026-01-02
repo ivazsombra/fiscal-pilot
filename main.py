@@ -285,21 +285,21 @@ def bootstrap_create_user(
     pw_hash = pwd_context.hash(password)
 
     conn = get_conn()
-try:
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO public.app_users(username, password_hash, role, is_active)
-        VALUES (%s, %s, 'evaluator', TRUE)
-        ON CONFLICT (username) DO UPDATE
-          SET password_hash=EXCLUDED.password_hash,
-              is_active=TRUE;
-    """, (username, pw_hash))
-    conn.commit()
-    cur.close()
-finally:
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO public.app_users(username, password_hash, role, is_active)
+            VALUES (%s, %s, 'evaluator', TRUE)
+            ON CONFLICT (username) DO UPDATE
+              SET password_hash=EXCLUDED.password_hash,
+                  is_active=TRUE;
+        """, (username, pw_hash))
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
 
-return {"ok": True, "username": username}
+    return {"ok": True, "username": username}
 
 
 
