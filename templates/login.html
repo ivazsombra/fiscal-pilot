@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Login</title></head>
+<body style="font-family: Arial; max-width: 520px; margin: 40px auto;">
+  <h2>Acceso</h2>
+  {% if error %}<p style="color:red;">{{ error }}</p>{% endif %}
+  <form method="post" action="/login">
+    <label>Usuario</label><br>
+    <input name="username" required style="width:100%; padding:8px;"><br><br>
+    <label>Contraseña</label><br>
+    <input name="password" type="password" required style="width:100%; padding:8px;"><br><br>
+    <button type="submit" style="padding:10px 14px;">Entrar</button>
+  </form>
+</body>
+</html>
