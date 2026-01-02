@@ -211,7 +211,10 @@ EVIDENCIA (única fuente autorizada):
 # -----------------------
 @app.on_event("startup")
 def startup():
-    ensure_user_table_exists()
+    # En Supabase (pooler) evitamos DDL en startup.
+    # La tabla app_users ya fue creada manualmente en Supabase.
+    pass
+
 
 
 @app.get("/", response_class=HTMLResponse)
