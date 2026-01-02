@@ -49,21 +49,24 @@ def get_conn():
 
 
 def ensure_user_table_exists():
-    # Por si alguien despliega sin correr SQL previo: fallback
     conn = get_conn()
-    conn.autocommit = True
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS public.app_users (
-      username TEXT PRIMARY KEY,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'evaluator',
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-    """)
-    cur.close()
-    conn.close()
+    try:
+        # Compatible con poolers: evita "set_session inside a transaction"
+        conn.set_session(autocommit=True)
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS public.app_users (
+          username TEXT PRIMARY KEY,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'evaluator',
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """)
+        cur.close()
+    finally:
+        conn.close()
+
 
 
 # -----------------------
