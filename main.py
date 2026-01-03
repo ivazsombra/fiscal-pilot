@@ -327,10 +327,10 @@ async def ask(request: Request, ejercicio: int = Form(...), question: str = Form
     # Guardar run
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO public.eval_runs(username, plan, ejercicio, question, top_k, retrieval, answer, latency_ms, model_chat, model_embed)
+        INSERT INTO public.eval_runs(username, plan, exercise_year, question, top_k, retrieval, answer, latency_ms, model_chat, model_embed)
         VALUES (%s, 'basic', %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
         RETURNING run_id;
-    """, (user, ejercicio, question, top_k, json.dumps(evidence, ensure_ascii=False), answer, latency_ms, MODEL_CHAT, MODEL_EMBED))
+    """, (user, exercise_year, question, top_k, json.dumps(evidence, ensure_ascii=False), answer, latency_ms, MODEL_CHAT, MODEL_EMBED))
     run_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
