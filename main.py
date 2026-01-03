@@ -147,7 +147,7 @@ def retrieve_chunks(conn, qvec: List[float], ejercicio: int, top_k: int) -> List
       t.score
     FROM top t
     JOIN public.documents d ON d.document_id = t.document_id
-    WHERE d.exercise_year = %s
+    WHERE (d.exercise_year = %s OR d.exercise_year = 0)
     ORDER BY t.score
     LIMIT %s;
     """
@@ -190,6 +190,7 @@ REGLAS DE BREVEDAD:
 - Máximo 700 tokens de salida.
 - Responde en máximo 6 secciones con viñetas.
 - Si la evidencia no alcanza para contestar con certeza, di “INCERTIDUMBRE” y detente.
+- Si la evidencia corresponde a tratados/convenios, indicarlo explícitamente y distinguirlo de ley federal.
 """
 
 
