@@ -33,23 +33,79 @@
   <hr>
 
   <div id="result"></div>
+  
+  
+ {% raw %}
+  {% raw %}
+<script>
+  const form = document.getElementById('askForm');
+  const result = document.getElementById('result');
 
-  <script>
-    const form = document.getElementById('askForm');
-    const result = document.getElementById('result');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    result.innerHTML = "<p>Consultando…</p>";
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      result.innerHTML = "<p>Consultando…</p>";
-      const formData = new FormData(form);
+    const formData = new FormData(form);
 
-      const r = await fetch('/ask', { method:'POST', body: formData });
-      if (!r.ok) {
-        const t = await r.text();
-        result.innerHTML = "<pre style='color:red; white-space:pre-wrap;'>" + t + "</pre>";
-        return;
+    const resp = await fetch("/ask_stream", { method: "POST", body: formData });
+    if (!resp.ok) {
+      result.innerHTML = "<pre style='color:red; white-space:pre-wrap;'>" + (await resp.text()) + "</pre>";
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let answer = "";
+    let doneMeta = null;
+
+    function render() {
+      let html = "";
+      if (doneMeta?.run_id) {
+        html += `<p><b>Run:</b> ${doneMeta.run_id} | <b>Latencia:</b> ${doneMeta.latency_ms} ms</p>`;
       }
-      const data = await r.json();
+      html += `<pre style="white-space:pre-wrap;">${answer}</pre>`;
+      result.innerHTML = html;
+    }
+
+    function handleSSE(chunkText) {
+      buffer += chunkText;
+      const events = buffer.split("\n\n");
+      buffer = events.pop(); // evento incompleto
+
+      for (const evt of events) {
+        const lines = evt.split("\n");
+        let eventName = "message";
+        let data = "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) eventName = line.slice(6).trim();
+          if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+
+        if (eventName === "message") {
+          answer += data.replaceAll("\\n", "\n");
+          render();
+        } else if (eventName === "done") {
+          doneMeta = JSON.parse(data);
+          render();
+        } else if (eventName === "error") {
+          answer += "\n\n[ERROR] " + data;
+          render();
+        }
+      }
+    }
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      handleSSE(decoder.decode(value, { stream: true }));
+    }
+  });
+</script>
+{% endraw %}
+
+
 
       let html = "";
       html += `<p><b>Run:</b> ${data.run_id} | <b>Latencia:</b> ${data.latency_ms} ms</p>`;
