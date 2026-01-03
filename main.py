@@ -202,7 +202,7 @@ Texto:
     return "\n".join(parts)
 
 
-def answer_with_citations(question: str, ejercicio: int, evidence: List[Dict[str, Any]]) -> str:
+def answer_with_citations(question: str, ejercicio: int, evidence: List[Dict[str, Any]]) -> tuple[str, int]:
     context = build_context(evidence)
     user_prompt = f"""
 Ejercicio fiscal: {ejercicio}
@@ -212,6 +212,8 @@ Pregunta del usuario:
 EVIDENCIA (única fuente autorizada):
 {context}
 """
+
+    t4 = time.time()
     resp = client.chat.completions.create(
         model=MODEL_CHAT,
         messages=[
@@ -220,7 +222,10 @@ EVIDENCIA (única fuente autorizada):
         ],
         temperature=0.2,
     )
-    return resp.choices[0].message.content
+    t5 = time.time()
+    gen_ms = int((t5 - t4) * 1000)
+
+    return resp.choices[0].message.content, gen_ms
 
 
 # -----------------------
@@ -334,11 +339,20 @@ async def ask(request: Request, ejercicio: int = Form(...), question: str = Form
         raise HTTPException(status_code=400, detail="Ejercicio inválido")
 
     t0 = time.time()
+
+    t_embed0 = time.time()
     qvec = embed_text(question)
+    t_embed1 = time.time()
+    embed_ms = int((t_embed1 - t_embed0) * 1000)
+
 
     conn = get_conn()
+    t2 = time.time()
+
     evidence = retrieve_chunks(conn, qvec, ejercicio=ejercicio, top_k=top_k)
-    answer = answer_with_citations(question, ejercicio, evidence)
+    t3 = time.time()
+    retrieval_ms = int((t3 - t2) * 1000)
+    answer, gen_ms = answer_with_citations(question, ejercicio, evidence)
     latency_ms = int((time.time() - t0) * 1000)
 
     # Guardar run
@@ -352,7 +366,7 @@ async def ask(request: Request, ejercicio: int = Form(...), question: str = Form
     conn.commit()
     cur.close()
     conn.close()
-
+    print(f"[TIMING] embed_ms={embed_ms} retrieval_ms={retrieval_ms} gen_ms={gen_ms} total_ms={embed_ms+retrieval_ms+gen_ms}")
     return JSONResponse({
         "run_id": run_id,
         "answer": answer,
