@@ -186,6 +186,10 @@ Reglas obligatorias:
 - Entrega: Resumen, Ejercicio y vigencia, Fundamento y citas, Análisis, Escenarios sin recomendar, Riesgo razonado, e Incertidumbre (si aplica).
 - Si el corpus no permite concluir con certeza: detente y pide datos concretos; no especules.
 - No des recomendaciones; entrega escenarios.
+REGLAS DE BREVEDAD:
+- Máximo 700 tokens de salida.
+- Responde en máximo 6 secciones con viñetas.
+- Si la evidencia no alcanza para contestar con certeza, di “INCERTIDUMBRE” y detente.
 """
 
 
@@ -216,6 +220,7 @@ EVIDENCIA (única fuente autorizada):
     t4 = time.time()
     resp = client.chat.completions.create(
         model=MODEL_CHAT,
+        max_tokens=700,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT.strip()},
             {"role": "user", "content": user_prompt.strip()},
