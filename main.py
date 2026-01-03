@@ -109,33 +109,49 @@ def embed_text(text: str) -> List[float]:
 
 def retrieve_chunks(conn, qvec: List[float], ejercicio: int, top_k: int) -> List[Dict[str, Any]]:
     """
-    Retrieval básico:
-    - filtra por ejercicio en documents.exercise_year
-    - une chunks + documents para citar filename, fecha DOF, etc.
+    Retrieval optimizado para pgvector + HNSW:
+    1) trae candidatos por similitud SIN filtro (usa índice HNSW)
+    2) luego filtra por ejercicio al hacer JOIN con documents
     """
+    # cuantos candidatos traer antes de filtrar por ejercicio
+    # (si te salen pocos resultados del año, sube a 500)
+    CANDIDATES = max(200, top_k * 25)
+
     cur = conn.cursor()
-    # vector_cosine_ops: si tu índice está configurado con cosine, usa <-> igual.
     sql = """
+    WITH top AS (
+      SELECT
+        c.chunk_id,
+        c.document_id,
+        c.page_start,
+        c.page_end,
+        c.text,
+        c.metadata,
+        (c.embedding <=> %s::vector) AS score
+      FROM public.chunks c
+      ORDER BY c.embedding <=> %s::vector
+      LIMIT %s
+    )
     SELECT
-      c.chunk_id,
-      c.document_id,
+      t.chunk_id,
+      t.document_id,
       d.source_filename,
       d.doc_family,
       d.doc_type,
       d.exercise_year,
       d.published_date,
-      c.page_start,
-      c.page_end,
-      c.text,
-      c.metadata,
-      (c.embedding <-> %s::vector) AS score
-    FROM public.chunks c
-    JOIN public.documents d ON d.document_id = c.document_id
+      t.page_start,
+      t.page_end,
+      t.text,
+      t.metadata,
+      t.score
+    FROM top t
+    JOIN public.documents d ON d.document_id = t.document_id
     WHERE d.exercise_year = %s
-    ORDER BY c.embedding <-> %s::vector
+    ORDER BY t.score
     LIMIT %s;
     """
-    cur.execute(sql, (qvec, ejercicio, qvec, top_k))
+    cur.execute(sql, (qvec, qvec, CANDIDATES, ejercicio, top_k))
     rows = cur.fetchall()
     cur.close()
 
@@ -156,6 +172,7 @@ def retrieve_chunks(conn, qvec: List[float], ejercicio: int, top_k: int) -> List
             "score": float(r[11]),
         })
     return out
+
 
 
 # -----------------------
