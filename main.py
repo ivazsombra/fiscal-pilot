@@ -196,7 +196,7 @@ def build_context(evidence: List[Dict[str, Any]]) -> str:
 Documento: {ev["source_filename"]} | Tipo: {ev["doc_type"]} | Familia: {ev["doc_family"]} | Ejercicio: {ev["exercise_year"]} | DOF: {ev["published_date"]}
 Ref: chunk_id={ev["chunk_id"]} | páginas: {ev["page_start"]}-{ev["page_end"]}
 Texto:
-{ev["text"]}
+{ev["text"][:1200]}
 """
         parts.append(cite)
     return "\n".join(parts)
