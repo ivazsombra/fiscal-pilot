@@ -1,10 +1,11 @@
 import os
 import json
 import time
+import asyncio
 from typing import List, Dict, Any, Optional
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from itsdangerous import URLSafeSerializer, BadSignature
@@ -115,7 +116,7 @@ def retrieve_chunks(conn, qvec: List[float], ejercicio: int, top_k: int) -> List
     """
     # cuantos candidatos traer antes de filtrar por ejercicio
     # (si te salen pocos resultados del año, sube a 500)
-    CANDIDATES = max(200, top_k * 25)
+    CANDIDATES = max(800, top_k * 80)
 
     cur = conn.cursor()
     sql = """
@@ -329,11 +330,295 @@ def bootstrap_create_user(
 
     return {"ok": True, "username": username}
 
+#---------------------------
+def _sse(event: str, data: str) -> str:
+    # Formato SSE: líneas "event:" y "data:" terminan con \n\n
+    # data debe ser string (si es json, pásalo ya serializado)
+    return f"event: {event}\n" + "\n".join([f"data: {line}" for line in data.splitlines()]) + "\n\n"
 
+
+def _get_delta_text(chunk) -> str:
+    """
+    Compatibilidad con distintas versiones del SDK de OpenAI:
+    - chunk.choices[0].delta.content (atributo)
+    - chunk.choices[0].delta.get("content") (dict)
+    """
+    try:
+        delta = chunk.choices[0].delta
+        if hasattr(delta, "content") and delta.content:
+            return delta.content
+        if isinstance(delta, dict) and delta.get("content"):
+            return delta.get("content")
+    except Exception:
+        pass
+    return ""
+
+
+@app.post("/ask_stream")
+async def ask_stream(
+    request: Request,
+    ejercicio: int = Form(...),
+    question: str = Form(...),
+    top_k: int = Form(DEFAULT_TOP_K),
+    user: str = Depends(require_user)
+):
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurada")
+
+    if ejercicio < 2000 or ejercicio > 2100:
+        raise HTTPException(status_code=400, detail="Ejercicio inválido")
+
+    def gen():
+        t0 = time.time()
+        conn = None
+        try:
+            # --- Embedding + retrieval (antes del streaming del modelo)
+            t1 = time.time()
+            qvec = embed_text(question)
+            embed_ms = int((time.time() - t1) * 1000)
+
+            conn = get_conn()
+            t2 = time.time()
+            evidence = retrieve_chunks(conn, qvec, ejercicio=ejercicio, top_k=top_k)
+            retrieval_ms = int((time.time() - t2) * 1000)
+
+            # Aviso inicial (opcional)
+            yield _sse("meta", json.dumps({
+                "embed_ms": embed_ms,
+                "retrieval_ms": retrieval_ms,
+                "top_k": top_k,
+                "exercise_year": ejercicio
+            }, ensure_ascii=False))
+
+            # --- Construir prompt con evidencia
+            context = build_context(evidence)
+            user_prompt = f"""
+Ejercicio fiscal: {ejercicio}
+Pregunta del usuario:
+{question}
+
+EVIDENCIA (única fuente autorizada):
+{context}
+""".strip()
+
+            # --- Streaming del modelo
+            t3 = time.time()
+            full_answer = ""
+
+            stream = client.chat.completions.create(
+                model=MODEL_CHAT,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT.strip()},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                stream=True,
+            )
+
+            for chunk in stream:
+                token = _get_delta_text(chunk)
+                if token:
+                    full_answer += token
+                    # Enviamos tokens como "message"
+                    yield _sse("message", token)
+
+            gen_ms = int((time.time() - t3) * 1000)
+            latency_ms = int((time.time() - t0) * 1000)
+
+            # --- Guardar run en DB (igual que /ask)
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO public.eval_runs(username, plan, ejercicio, question, top_k, retrieval, answer, latency_ms, model_chat, model_embed)
+                VALUES (%s, 'basic', %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
+                RETURNING run_id;
+            """, (
+                user,
+                ejercicio,
+                question,
+                top_k,
+                json.dumps(evidence, ensure_ascii=False),
+                full_answer,
+                latency_ms,
+                MODEL_CHAT,
+                MODEL_EMBED
+            ))
+            run_id = cur.fetchone()[0]
+            conn.commit()
+            cur.close()
+
+            # Evento final "done"
+            yield _sse("done", json.dumps({
+                "run_id": run_id,
+                "latency_ms": latency_ms,
+                "embed_ms": embed_ms,
+                "retrieval_ms": retrieval_ms,
+                "gen_ms": gen_ms,
+                "citations": [
+                    {
+                        "n": i + 1,
+                        "source_filename": ev.get("source_filename"),
+                        "doc_type": ev.get("doc_type"),
+                        "published_date": ev.get("published_date"),
+                        "chunk_id": ev.get("chunk_id"),
+                        "page_start": ev.get("page_start"),
+                        "page_end": ev.get("page_end"),
+                        "score": ev.get("score"),
+                    } for i, ev in enumerate(evidence)
+                ]
+            }, ensure_ascii=False))
+
+        except Exception as e:
+            # Si truena, avisamos en SSE
+            yield _sse("error", str(e))
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # útil si algún proxy bufferiza
+    }
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
 
 # -----------------------
 # API: Ask + Feedback
 # -----------------------
+@app.post("/ask_stream")
+async def ask_stream(
+    request: Request,
+    ejercicio: int = Form(...),
+    question: str = Form(...),
+    top_k: int = Form(DEFAULT_TOP_K),
+    user: str = Depends(require_user),
+):
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurada")
+
+    if ejercicio < 2000 or ejercicio > 2100:
+        raise HTTPException(status_code=400, detail="Ejercicio inválido")
+
+    # Medición (igual que /ask)
+    t0 = time.time()
+
+    # 1) Embedding
+    t_embed0 = time.time()
+    qvec = embed_text(question)
+    t_embed1 = time.time()
+    embed_ms = int((t_embed1 - t_embed0) * 1000)
+
+    # 2) Retrieval
+    conn = get_conn()
+    try:
+        t_ret0 = time.time()
+        evidence = retrieve_chunks(conn, qvec, ejercicio=ejercicio, top_k=top_k)
+        t_ret1 = time.time()
+        retrieval_ms = int((t_ret1 - t_ret0) * 1000)
+
+        # Prompt
+        context = build_context(evidence)
+        user_prompt = f"""
+Ejercicio fiscal: {ejercicio}
+Pregunta del usuario:
+{question}
+
+EVIDENCIA (única fuente autorizada):
+{context}
+""".strip()
+
+        async def event_gen():
+            # Enviar meta inicial (opcional)
+            yield f"event: meta\ndata: {json.dumps({'ok': True}, ensure_ascii=False)}\n\n"
+
+            t_gen0 = time.time()
+            answer_parts = []
+
+            try:
+                # Streaming desde OpenAI
+                stream = client.chat.completions.create(
+                    model=MODEL_CHAT,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT.strip()},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=700,
+                    stream=True,
+                )
+
+                for evt in stream:
+                    delta = None
+                    try:
+                        delta = evt.choices[0].delta.content
+                    except Exception:
+                        delta = None
+
+                    if delta:
+                        answer_parts.append(delta)
+                        # SSE: cada token como "data:"
+                        safe = delta.replace("\r", "").replace("\n", "\\n")
+                        yield f"data: {safe}\n\n"
+
+                # Fin
+                t_gen1 = time.time()
+                gen_ms = int((t_gen1 - t_gen0) * 1000)
+                answer = "".join(answer_parts)
+                latency_ms = int((time.time() - t0) * 1000)
+
+                # Guardar run (igual que /ask)
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO public.eval_runs(username, plan, ejercicio, question, top_k, retrieval, answer, latency_ms, model_chat, model_embed)
+                    VALUES (%s, 'basic', %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
+                    RETURNING run_id;
+                """, (user, ejercicio, question, top_k, json.dumps(evidence, ensure_ascii=False),
+                      answer, latency_ms, MODEL_CHAT, MODEL_EMBED))
+                run_id = cur.fetchone()[0]
+                conn.commit()
+                cur.close()
+
+                print(f"[TIMING] embed_ms={embed_ms} retrieval_ms={retrieval_ms} gen_ms={gen_ms} total_ms={embed_ms+retrieval_ms+gen_ms}")
+
+                done_payload = {
+                    "run_id": run_id,
+                    "latency_ms": latency_ms,
+                    "citations": [
+                        {
+                            "n": i + 1,
+                            "source_filename": ev["source_filename"],
+                            "doc_type": ev["doc_type"],
+                            "published_date": ev["published_date"],
+                            "chunk_id": ev["chunk_id"],
+                            "page_start": ev["page_start"],
+                            "page_end": ev["page_end"],
+                            "score": ev["score"],
+                        } for i, ev in enumerate(evidence)
+                    ]
+                }
+                yield f"event: done\ndata: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+
+            except Exception as e:
+                err = {"error": str(e)}
+                yield f"event: error\ndata: {json.dumps(err, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            event_gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # ayuda en algunos proxies
+            },
+        )
+
+    finally:
+        conn.close()
+
+
+#-------------------------
+
 @app.post("/ask")
 async def ask(request: Request, ejercicio: int = Form(...), question: str = Form(...), top_k: int = Form(DEFAULT_TOP_K),
               user: str = Depends(require_user)):
