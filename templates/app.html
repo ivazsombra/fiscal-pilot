@@ -33,9 +33,7 @@
   <hr>
 
   <div id="result"></div>
-  
-  
- {% raw %}
+
   {% raw %}
 <script>
   const form = document.getElementById('askForm');
@@ -104,37 +102,5 @@
   });
 </script>
 {% endraw %}
-
-
-
-      let html = "";
-      html += `<p><b>Run:</b> ${data.run_id} | <b>Latencia:</b> ${data.latency_ms} ms</p>`;
-      html += `<h3>Respuesta</h3><pre style="white-space:pre-wrap;">${data.answer}</pre>`;
-      html += `<h3>Citas</h3><ol>`;
-      for (const c of data.citations) {
-        html += `<li><b>${c.source_filename}</b> (${c.doc_type || "n/a"}) DOF: ${c.published_date || "n/d"} | chunk: ${c.chunk_id}</li>`;
-      }
-      html += `</ol>`;
-
-      html += `<h3>Feedback</h3>
-        <form id="fbForm">
-          <input type="hidden" name="run_id" value="${data.run_id}">
-          <label><input type="radio" name="thumbs_up" value="true" checked> 👍</label>
-          <label style="margin-left:10px;"><input type="radio" name="thumbs_up" value="false"> 👎</label><br><br>
-          <textarea name="comment" rows="2" style="width:100%; padding:8px;" placeholder="Comentario opcional"></textarea><br><br>
-          <button type="submit" style="padding:8px 12px;">Enviar feedback</button>
-        </form>
-      `;
-      result.innerHTML = html;
-
-      document.getElementById('fbForm').addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        const fd = new FormData(ev.target);
-        const fr = await fetch('/feedback', { method:'POST', body: fd });
-        if (fr.ok) alert("Gracias. Feedback guardado.");
-        else alert("No se pudo guardar feedback.");
-      });
-    });
-  </script>
 </body>
 </html>
