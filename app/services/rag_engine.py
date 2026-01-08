@@ -138,8 +138,8 @@ def generate_answer_stream(system_prompt: str, user_prompt: str = "Proceda con e
 # ==========================================
 # 3. FUNCIÓN PRINCIPAL (ORQUESTADOR)
 # ==========================================
-# Esta es la función que llama main.py
-def generate_response(question: str, regimen: str = "General", ejercicio: int = 2025) -> str:
+# Esta es la función que llama main.py 
+def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025) -> str:
     """
     Flujo completo: Conectar DB -> Vectorizar -> Buscar Contexto -> Generar Respuesta
     """
