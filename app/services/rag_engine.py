@@ -55,7 +55,14 @@ def _vec_literal(vec: List[float]) -> str:
 # Retrieval (año exacto)
 # =========================
 
-def retrieve_context(conn, query_vec: List[float], ejercicio: int, top_k: int = 8) -> List[Dict[str, Any]]:
+def retrieve_context(
+    conn,
+    query_vec: List[float],
+    ejercicio: int,
+    top_k: int = 8,
+    prefer_doc_type: str | None = None,
+    exclude_doc_type: str | None = None,
+) -> List[Dict[str, Any]]:
     cur = conn.cursor()
     qv = _vec_literal(query_vec)
 
@@ -72,11 +79,13 @@ def retrieve_context(conn, query_vec: List[float], ejercicio: int, top_k: int = 
     FROM public.chunks c
     JOIN public.documents d ON c.document_id = d.document_id
     WHERE d.exercise_year = %s
+      AND (%s IS NULL OR d.doc_type = %s)
+      AND (%s IS NULL OR d.doc_type <> %s)
     ORDER BY c.embedding <=> %s::vector
     LIMIT %s
     """
 
-    cur.execute(sql, (qv, ejercicio, qv, top_k))
+    cur.execute(sql, (qv, ejercicio, prefer_doc_type, prefer_doc_type, exclude_doc_type, exclude_doc_type, qv, top_k))
     rows = cur.fetchall()
     cur.close()
 
@@ -95,6 +104,7 @@ def retrieve_context(conn, query_vec: List[float], ejercicio: int, top_k: int = 
         })
     return evidence
 
+
 # =========================
 # Continuidad normativa (fallback)
 # =========================
@@ -103,34 +113,55 @@ def retrieve_context_with_fallback(
     conn,
     query_vec: List[float],
     ejercicio: int,
+    question: str,
     top_k: int = 8
 ) -> Tuple[List[Dict[str, Any]], int]:
-    """
-    Intenta recuperar evidencia:
-      - Primero el ejercicio solicitado
-      - Si no hay evidencia y el ejercicio es 2025/2026 -> fallback 2024, 2023, 2022
-      - Si es otro año -> fallback hacia atrás hasta 2022
-    Devuelve: (evidence, used_year)
-    """
+    q = (question or "").lower()
 
+    wants_rmf = ("rmf" in q) or ("miscel" in q) or ("miscelánea" in q)
+    mentions_anexo = ("anexo" in q)  # si el usuario pidió un anexo, no lo excluyas
+    mentions_dof = ("dof" in q) or ("diario oficial" in q)
+
+    prefer_doc_type = "rmf" if wants_rmf else None
+
+    # Si el usuario NO pidió anexo explícitamente y la pregunta es "general",
+    # primero intentamos excluir anexos para evitar sesgo a 16-A.
+    exclude_doc_type_first_pass = None
+    if not mentions_anexo and not mentions_dof:
+        exclude_doc_type_first_pass = "anexo"
+
+    # Candidatos de año: prioridad + continuidad
     candidates: List[int] = []
-
-    # Prioridad temporal en tu producto (2025/2026), con fallback 2024..2022
     if ejercicio in (2025, 2026):
         candidates.append(ejercicio)
-        # Si quisieras intentar el "otro" cercano, descomenta:
-        # candidates.append(2026 if ejercicio == 2025 else 2025)
         candidates.extend([2024, 2023, 2022])
     else:
         candidates.append(ejercicio)
-        candidates.extend([y for y in range(ejercicio - 1, 2021, -1)])  # hasta 2022
+        candidates.extend([y for y in range(ejercicio - 1, 2021, -1)])
 
     for y in candidates:
-        ev = retrieve_context(conn, query_vec, y, top_k=top_k)
+        # PASO 1: preferencia por RMF (si aplica) y excluir anexos (si aplica)
+        ev = retrieve_context(
+            conn, query_vec, y, top_k=top_k,
+            prefer_doc_type=prefer_doc_type,
+            exclude_doc_type=exclude_doc_type_first_pass
+        )
+        if ev:
+            return ev, y
+
+        # PASO 2: si no hubo, intentar RMF sin excluir (por si RMF está dentro de "anexo" mal etiquetado)
+        if prefer_doc_type:
+            ev = retrieve_context(conn, query_vec, y, top_k=top_k, prefer_doc_type=prefer_doc_type, exclude_doc_type=None)
+            if ev:
+                return ev, y
+
+        # PASO 3: abrir abanico (cualquier doc_type del año)
+        ev = retrieve_context(conn, query_vec, y, top_k=top_k, prefer_doc_type=None, exclude_doc_type=None)
         if ev:
             return ev, y
 
     return [], ejercicio
+
 
 # =========================
 # Prompt build
@@ -191,7 +222,7 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         query_vec = embed_text(question)
 
         # 2) Retrieval con continuidad normativa
-        evidence, used_year = retrieve_context_with_fallback(conn, query_vec, ejercicio, top_k=8)
+        evidence, used_year = retrieve_context_with_fallback(conn, query_vec, ejercicio, question=question, top_k=8)
 
         # 3) System prompt con contexto
         system_prompt = build_system_message(evidence)
