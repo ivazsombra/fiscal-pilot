@@ -1,15 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-# Mantenemos tu importación del motor RAG
 from app.services.rag_engine import generate_response_with_rag
 
 app = FastAPI(title="Agente Fiscal Pro 2025")
 
-# 1. Conectamos la carpeta "static" que acabas de crear
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class QueryRequest(BaseModel):
@@ -17,12 +15,10 @@ class QueryRequest(BaseModel):
     regimen: Optional[str] = "General"
     ejercicio: Optional[int] = 2025
 
-# 2. Ruta principal: Entrega el archivo index.html
 @app.get("/")
 async def read_root():
-    return FileResponse('static/index.html')
+    return FileResponse("static/index.html")
 
-# 3. Ruta de estado (movida para no estorbar)
 @app.get("/api/health")
 def health_check():
     return {"status": "Online", "mode": "Tier 2 RAG", "db": "Supabase"}
@@ -30,9 +26,18 @@ def health_check():
 @app.post("/chat")
 def chat_endpoint(request: QueryRequest):
     try:
-        # Tu lógica original intacta
-        response = generate_response_with_rag(request.question) 
-        return {"response": response}
+        response_text = generate_response_with_rag(
+            question=request.question,
+            regimen=request.regimen or "General",
+            ejercicio=request.ejercicio or 2025,
+        )
+
+        # Compatibilidad: frontend usa answer; mantenemos response por si algo lo consume
+        return JSONResponse(
+            content={"answer": response_text, "response": response_text},
+            media_type="application/json; charset=utf-8",
+        )
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
