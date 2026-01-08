@@ -75,3 +75,45 @@ SESIÓN: 07 Enero 2026
 
 ### Siguiente Paso Exacto
 * Realizar el despliegue a Render (`git add .`, `git commit -m "Fix ingesta y update prompt"`, `git push`) y verificar la respuesta del chat en la URL pública.
+==================================================
+SESIÓN: 07 Enero 2026
+==================================================
+
+### Resumen Técnico
+* **Ingesta de Datos (ETL):** * Se ejecutó `procesar_fallidos.py` exitosamente.
+    * Se recuperaron 3 archivos críticos (SHCP y Novena Modificación) limpiando caracteres nulos.
+    * Se insertaron 3,723 nuevos embeddings en Supabase.
+* **Lógica del Agente (RAG):** * Se modificó el `SYSTEM_PROMPT` en `services/rag_engine.py`.
+    * Se implementó lógica de "Continuidad Normativa" para permitir el uso de leyes de 2022/2023 vigentes en 2025/2026, con una nota de advertencia obligatoria.
+* **Infraestructura:** * Se validó que `main.py` es la aplicación FastAPI y `test_connection.py` es la prueba simple.
+    * Se realizó el commit f08e653 incluyendo scripts de auditoría y reparación.
+
+### Estado Actual
+* **Base de datos:** Íntegra y actualizada.
+* **Código:** Desplegado en Render (o en proceso tras el push).
+* **Pendiente:** Verificar visualmente en el chat web que el agente responde correctamente sobre la "Novena Modificación" sin bloquearse por la fecha.
+
+### Siguiente Paso Exacto
+* Entrar a la URL pública del proyecto y realizar la prueba de humo: Preguntar "¿Qué dice la novena modificación del anexo 15?" para confirmar que la nueva lógica de vigencia funciona.
+==================================================
+SESIÓN: 07 Enero 2026
+==================================================
+
+### Resumen Técnico
+* **Ingesta de Datos (ETL):**
+    * Se ejecutó el script de reparación `procesar_fallidos.py`.
+    * Se recuperaron exitosamente archivos críticos (SHCP y Novena Modificación) mediante sanitización UTF-8.
+    * Se insertaron 3,723 nuevos embeddings en Supabase.
+* **Lógica del Agente (RAG):**
+    * Se actualizó `services/rag_engine.py` implementando "Continuidad Normativa".
+    * El agente ahora utiliza correctamente documentos de años anteriores (2022) para consultas del ejercicio actual (2025) si siguen vigentes.
+* **Infraestructura:**
+    * Código desplegado en Render (Commit: "Fix ingesta y update prompt").
+    * Validación en producción exitosa: El agente responde con la data correcta.
+
+### Estado Actual
+* **Funcionalidad:** ✅ OPERATIVA. El sistema recupera la información correcta y razona bien la vigencia.
+* **Bug Detectado:** ⚠️ FORMATO. La respuesta en producción se genera sin espacios entre palabras (ej: "ContextoIdentificado:-**EjercicioFiscal").
+
+### Siguiente Paso Exacto
+* Depurar el problema de concatenación de texto (espaciado) en `rag_engine.py` o en la respuesta del endpoint, para que el texto sea legible nuevamente.

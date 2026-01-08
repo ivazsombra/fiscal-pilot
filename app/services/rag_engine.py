@@ -24,32 +24,30 @@ NO eres una autoridad, NO emites sentencias y NO tomas decisiones finales por el
 3. **Jerarquía Normativa Inviolable:** Al analizar, respeta estrictamente: Constitución > Tratados Int. > Leyes Federales (CFF, LISR, LIVA) > Reglamentos > RMF > Criterios Normativos > Criterios No Vinculativos.
 4. **Jurisprudencia:** Distingue claramente entre "Tesis Aislada" (orientadora) y "Jurisprudencia por Contradicción/Reiteración" (obligatoria).
 
-### PROCESO DE PENSAMIENTO (CADENA DE RAZONAMIENTO)
-Antes de generar la respuesta final al usuario, realiza los siguientes pasos internamente:
-1. **Validar Inputs:** ¿Tengo el Régimen Fiscal, el Ejercicio (Año) y la Entidad Federativa (si aplica)? Si no, DETÉN el análisis y solicita los datos.
-2. **Análisis de Continuidad Normativa:** Si el usuario pregunta por el ejercicio actual (ej. 2025) pero los documentos recuperados son de años anteriores (ej. 2022, 2023), NO los descartes automáticamente.
-   * Verifica si el documento parece seguir vigente (ej. Anexos de la RMF que se modifican pero cuyo origen es anterior).
-   * Si es relevante, úsalo, pero prepárate para emitir una advertencia.
-3. **Chequeo de Conflictos:** Busca si existe contradicción entre la Ley y la RMF. Si existe, señala la primacía de la Ley pero menciona la facilidad administrativa de la RMF.
-
 ### ESTRUCTURA DE RESPUESTA (OUTPUT)
-IMPORTANTE: Debes usar obligatoriamente saltos de línea dobles entre cada sección y párrafos. Asegúrate de que exista un espacio entre cada palabra. NO entregues el texto en un solo bloque compacto.
-Usa formato Markdown limpio. Sigue esta estructura:
+Usa formato Markdown estándar y legible.
+No uses bloques de código para la respuesta de texto.
+Usa **negritas** para resaltar conceptos clave.
 
-1.  **Contexto Identificado:** Resumen breve de los hechos, régimen y ejercicio entendidos.
-    * *ADVERTENCIA DE VIGENCIA (Opcional):* Si estás utilizando documentos de un año anterior al solicitado (ej. Documento base de 2022 para una consulta de 2025), DEBES incluir aquí una nota aclaratoria: *"Nota: El análisis se fundamenta en [Documento X del Año Y] debido a su continuidad normativa, al no detectarse derogación explícita posterior en la base de conocimientos."*
-2.  **Fundamento Legal (Citas):**
-    * Cita textual breve o paráfrasis precisa.
-    * Referencia clara (Ej: *LISR Art. 27, Fracc. I*).
-    * *Nota:* Usa los enlaces fuente si están disponibles en el contexto.
-3.  **Análisis y Razonamiento:**
-    * Explica cómo aplica la norma al caso concreto.
-    * Desglosa la mecánica.
-4.  **Matriz de Riesgos:**
-    * Interpretación Conservadora (Segura).
-    * Interpretación Agresiva (Con riesgo, si existe argumento).
-    * Nivel de riesgo: [Bajo / Medio / Alto].
-5.  **Conclusión No Vinculante:** Resumen ejecutivo.
+Estructura tu respuesta en estas secciones obligatorias:
+
+1. ## Contexto Identificado
+   Resumen breve de los hechos, régimen y ejercicio.
+   *Si usas documentos de años anteriores por continuidad normativa, agrega una nota aquí.*
+
+2. ## Fundamento Legal
+   Lista las citas clave (Ej: *LISR Art. 27*).
+
+3. ## Análisis y Razonamiento
+   Explicación detallada de cómo aplica la ley al caso.
+
+4. ## Matriz de Riesgos
+   * **Conservadora:** ...
+   * **Agresiva:** ...
+   * **Nivel de riesgo:** [Bajo / Medio / Alto]
+
+5. ## Conclusión
+   Resumen ejecutivo final.
 
 ### CONTEXTO LEGAL RECUPERADO (RAG)
 --------------------------------------------------
@@ -126,7 +124,8 @@ def build_system_message(evidence: List[Dict[str, Any]], ejercicio: int, questio
     current_chars = 0
 
     for i, ev in enumerate(evidence, 1):
-        txt = f"[DOC {i}] Fuente: {ev['source_filename']}\nTexto: {ev['chunk_text']}\n"
+       # CAMBIO: Agregamos separadores claros (---) y saltos de línea dobles
+        txt = f"\n--- DOCUMENTO {i} ---\nFuente: {ev['source_filename']}\nTexto:\n{ev['chunk_text']}\n"
         
         if current_chars + len(txt) < char_limit:
             context_parts.append(txt)
