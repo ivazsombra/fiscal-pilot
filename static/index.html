@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agente Fiscal Pro 2025</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; height: 100vh; margin: 0; }
+        .chat-container { width: 100%; max-width: 600px; background: white; display: flex; flex-direction: column; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .header { background: #2c3e50; color: white; padding: 15px; text-align: center; font-weight: bold; }
+        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message { padding: 10px 15px; border-radius: 20px; max-width: 80%; line-height: 1.4; }
+        .user { align-self: flex-end; background-color: #3498db; color: white; border-bottom-right-radius: 2px; }
+        .bot { align-self: flex-start; background-color: #ecf0f1; color: #2c3e50; border-bottom-left-radius: 2px; }
+        .input-area { display: flex; border-top: 1px solid #ddd; padding: 10px; }
+        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; }
+        button { margin-left: 10px; padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #219150; }
+        button:disabled { background: #ccc; }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="header">Agente Fiscal Pro (RAG Tier 2)</div>
+    <div class="messages" id="messages">
+        <div class="message bot">¡Hola! Soy tu asistente fiscal experto en el ejercicio 2025. ¿Cuál es tu duda?</div>
+    </div>
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="Escribe tu pregunta fiscal aquí..." onkeypress="handleEnter(event)">
+        <button onclick="sendMessage()" id="sendBtn">Enviar</button>
+    </div>
+</div>
+
+<script>
+    async function sendMessage() {
+        const input = document.getElementById('userInput');
+        const message = input.value.trim();
+        const messagesDiv = document.getElementById('messages');
+        const btn = document.getElementById('sendBtn');
+
+        if (!message) return;
+
+        // 1. Mostrar mensaje del usuario
+        messagesDiv.innerHTML += `<div class="message user">${message}</div>`;
+        input.value = '';
+        btn.disabled = true;
+        
+        // Auto-scroll hacia abajo
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        try {
+            // 2. Enviar al Backend (Python)
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    question: message,
+                    regimen: "General", // Valores por defecto
+                    ejercicio: 2025 
+                })
+            });
+
+            const data = await response.json();
+
+            // 3. Mostrar respuesta del Bot
+            // Si hay error en la respuesta del RAG, mostramos un aviso
+            const botText = data.response ? data.response : "Error: No pude obtener respuesta.";
+            messagesDiv.innerHTML += `<div class="message bot">${botText}</div>`;
+
+        } catch (error) {
+            messagesDiv.innerHTML += `<div class="message bot" style="color:red">Error de conexión con el servidor.</div>`;
+        }
+
+        btn.disabled = false;
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function handleEnter(e) {
+        if (e.key === 'Enter') sendMessage();
+    }
+</script>
+
+</body>
+</html>
