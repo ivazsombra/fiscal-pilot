@@ -117,3 +117,17 @@ SESIÓN: 07 Enero 2026
 
 ### Siguiente Paso Exacto
 * Depurar el problema de concatenación de texto (espaciado) en `rag_engine.py` o en la respuesta del endpoint, para que el texto sea legible nuevamente.
+Componente,Estado,Detalle Técnico
+Infraestructura,OPERATIVA,El servidor corre en Render sobre el puerto 10000.
+Interfaz (Frontend),DESPLEGADA,"Se creó la carpeta /static, el archivo index.html y la ruta raíz / sirve la UI correctamente."
+Conexión a Base de Datos,EXITOSA,Se corrigió el error de socket local. El backend ya se comunica con el pooler de Supabase vía TCP/IP.
+Motor RAG,FUNCIONAL (Básico),"El flujo Pregunta -> Embedding -> Búsqueda -> OpenAI -> Respuesta está activo, pero la recuperación de datos es inconsistente."
+Variables de Entorno,CONFIGURADAS,DATABASE_URL y OPENAI_API_KEY están integradas en el panel de Render.
+Siguiente Paso Exacto
+El siguiente paso es optimizar la calidad de la respuesta y el formato visual. No necesitamos reescribir todo, solo ajustar dos puntos específicos:
+
+1. Mejorar el "Prompt" del Sistema (Backend)
+En tu archivo app/services/rag_engine.py, debemos ajustar las instrucciones que recibe GPT-4 para que no sea tan "genérico" y para que, si encuentra información parcial, sepa cómo presentarla mejor.
+
+2. Formateo de Respuesta (Frontend)
+Actualmente, el bot responde con texto plano (se ven asteriscos como **). Necesitamos que el index.html interprete Markdown para que las respuestas sean legibles, con negritas, listas y saltos de línea reales.

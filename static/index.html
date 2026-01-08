@@ -5,29 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agente Fiscal Pro 2025</title>
     <style>
-        body { font-family: sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; height: 100vh; margin: 0; }
-        .chat-container { width: 100%; max-width: 600px; background: white; display: flex; flex-direction: column; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        .header { background: #2c3e50; color: white; padding: 15px; text-align: center; font-weight: bold; }
-        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-        .message { padding: 10px 15px; border-radius: 20px; max-width: 80%; line-height: 1.4; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; height: 100vh; margin: 0; }
+        .chat-container { width: 100%; max-width: 800px; background: white; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        .header { background: #2c3e50; color: white; padding: 20px; text-align: center; font-weight: bold; font-size: 1.2em; }
+        .messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+        
+        /* Estilos de los mensajes */
+        .message { padding: 12px 18px; border-radius: 10px; max-width: 85%; line-height: 1.5; font-size: 0.95em; }
         .user { align-self: flex-end; background-color: #3498db; color: white; border-bottom-right-radius: 2px; }
-        .bot { align-self: flex-start; background-color: #ecf0f1; color: #2c3e50; border-bottom-left-radius: 2px; }
-        .input-area { display: flex; border-top: 1px solid #ddd; padding: 10px; }
-        input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; outline: none; }
-        button { margin-left: 10px; padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .bot { align-self: flex-start; background-color: #f1f2f6; color: #2c3e50; border-bottom-left-radius: 2px; border: 1px solid #e1e1e1; }
+        
+        /* Estilos específicos para el Markdown del bot */
+        .bot strong { color: #d35400; font-weight: 700; } /* Negritas en naranja oscuro */
+        .bot ul { margin: 5px 0; padding-left: 20px; }
+        .bot p { margin: 5px 0; }
+
+        .input-area { display: flex; border-top: 1px solid #ddd; padding: 15px; background: #fff; }
+        input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px; outline: none; font-size: 1em; }
+        button { margin-left: 10px; padding: 10px 25px; background: #27ae60; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
         button:hover { background: #219150; }
-        button:disabled { background: #ccc; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
 <div class="chat-container">
     <div class="header">Agente Fiscal Pro (RAG Tier 2)</div>
     <div class="messages" id="messages">
-        <div class="message bot">¡Hola! Soy tu asistente fiscal experto en el ejercicio 2025. ¿Cuál es tu duda?</div>
+        <div class="message bot">
+            <strong>¡Hola!</strong> Soy tu asistente fiscal experto. <br>
+            Puedo responder dudas sobre el <strong>ejercicio 2025</strong> basándome en leyes vigentes y anteriores.
+        </div>
     </div>
     <div class="input-area">
-        <input type="text" id="userInput" placeholder="Escribe tu pregunta fiscal aquí..." onkeypress="handleEnter(event)">
+        <input type="text" id="userInput" placeholder="Ej: ¿Qué dice la regla 3.5.1 sobre RIF?" onkeypress="handleEnter(event)">
         <button onclick="sendMessage()" id="sendBtn">Enviar</button>
     </div>
 </div>
@@ -41,35 +53,51 @@
 
         if (!message) return;
 
-        // 1. Mostrar mensaje del usuario
-        messagesDiv.innerHTML += `<div class="message user">${message}</div>`;
+        // 1. Mostrar mensaje del usuario (Texto plano)
+        const userDiv = document.createElement('div');
+        userDiv.className = 'message user';
+        userDiv.textContent = message;
+        messagesDiv.appendChild(userDiv);
+
         input.value = '';
         btn.disabled = true;
-        
-        // Auto-scroll hacia abajo
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
         try {
-            // 2. Enviar al Backend (Python)
+            // 2. Enviar al Backend
             const response = await fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     question: message,
-                    regimen: "General", // Valores por defecto
+                    // Parámetros opcionales para contexto
+                    regimen: "General", 
                     ejercicio: 2025 
                 })
             });
 
             const data = await response.json();
 
-            // 3. Mostrar respuesta del Bot
-            // Si hay error en la respuesta del RAG, mostramos un aviso
-            const botText = data.response ? data.response : "Error: No pude obtener respuesta.";
-            messagesDiv.innerHTML += `<div class="message bot">${botText}</div>`;
+            // 3. Crear contenedor para el mensaje del BOT
+            const botDiv = document.createElement('div');
+            botDiv.className = 'message bot';
+
+            // VALIDACIÓN CRÍTICA:
+            // El backend suele devolver "answer". Si falla, usamos un mensaje de error.
+            const rawText = data.answer || "⚠️ Error: El servidor no devolvió una respuesta válida.";
+
+            // 4. AQUÍ OCURRE LA MAGIA: Convertimos Markdown a HTML
+            botDiv.innerHTML = marked.parse(rawText);
+
+            messagesDiv.appendChild(botDiv);
 
         } catch (error) {
-            messagesDiv.innerHTML += `<div class="message bot" style="color:red">Error de conexión con el servidor.</div>`;
+            console.error(error);
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'message bot';
+            errorDiv.style.color = '#c0392b';
+            errorDiv.textContent = "Error de conexión con el servidor.";
+            messagesDiv.appendChild(errorDiv);
         }
 
         btn.disabled = false;
