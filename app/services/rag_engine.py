@@ -1,18 +1,13 @@
+import os
 import json
 import psycopg2
-from typing import List, Dict, Any, Generator, Optional
+from typing import List, Dict, Any, Generator
 from openai import OpenAI
-from app.core.config import DIRECT_URL
 
-# Importamos la configuración desde la ruta correcta de la nueva estructura
 from app.core.config import OPENAI_API_KEY, DIRECT_URL, MODEL_EMBED, MODEL_CHAT
 
-# Inicializamos el cliente de OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ==========================================
-# 1. PROMPT DE DIAGNÓSTICO (Simplificado)
-# ==========================================
 SYSTEM_PROMPT = """
 Eres un Asesor Fiscal Experto (IA) especializado en la legislación mexicana para el ejercicio 2025.
 Tu misión es dar respuestas técnicas, fundamentadas y fáciles de leer para contadores y fiscalistas.
@@ -38,30 +33,25 @@ CONTEXTO RECUPERADO DE LA BASE DE DATOS:
 {context}
 """
 
-# ==========================================
-# 2. FUNCIONES DE BASE DE DATOS E IA
-# ==========================================
-
 def get_db_connection():
-    # Si DIRECT_URL está vacío, intentamos leerlo directamente del sistema
     conn_str = DIRECT_URL or os.getenv("DATABASE_URL")
-    
     if not conn_str:
         raise ValueError("No se encontró la cadena de conexión a la base de datos.")
-        
     return psycopg2.connect(conn_str)
 
 def embed_text(text: str) -> List[float]:
-    """Convierte texto a vector usando OpenAI"""
     clean_text = text.replace("\n", " ")
     resp = client.embeddings.create(input=[clean_text], model=MODEL_EMBED)
     return resp.data[0].embedding
 
+def _vec_literal(vec: List[float]) -> str:
+    return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
+
 def retrieve_context(conn, query_vec: List[float], ejercicio: int, top_k: int = 8) -> List[Dict[str, Any]]:
-    """Busca documentos relevantes en Postgres/pgvector"""
     cur = conn.cursor()
-    
-    # Consulta SQL optimizada para tu esquema
+
+    qv = _vec_literal(query_vec)
+
     sql = """
     SELECT 
         c.chunk_id,
@@ -78,16 +68,14 @@ def retrieve_context(conn, query_vec: List[float], ejercicio: int, top_k: int = 
     ORDER BY c.embedding <=> %s::vector
     LIMIT %s
     """
-    
-    cur.execute(sql, (query_vec, ejercicio, query_vec, top_k))
+
+    cur.execute(sql, (qv, ejercicio, qv, top_k))
     rows = cur.fetchall()
     cur.close()
 
     evidence = []
     for r in rows:
-        # Manejo seguro de fecha (puede ser None)
         pub_date = r[4].isoformat() if r[4] else "S/F"
-        
         evidence.append({
             "chunk_id": r[0],
             "source_filename": r[1],
@@ -101,46 +89,32 @@ def retrieve_context(conn, query_vec: List[float], ejercicio: int, top_k: int = 
     return evidence
 
 def build_system_message(evidence: List[Dict[str, Any]], ejercicio: int, question: str) -> str:
-    """Construye el prompt final con capacidad extendida para Tier 2."""
     context_parts = []
-    
-    # Límite seguro de caracteres para GPT-4o
-    char_limit = 400000 
+    char_limit = 400000
     current_chars = 0
 
     for i, ev in enumerate(evidence, 1):
-       # CAMBIO: Agregamos separadores claros (---) y saltos de línea dobles
         txt = f"\n--- DOCUMENTO {i} ---\nFuente: {ev['source_filename']}\nTexto:\n{ev['chunk_text']}\n"
-        
         if current_chars + len(txt) < char_limit:
             context_parts.append(txt)
             current_chars += len(txt)
         else:
             context_parts.append("... [Límite de seguridad alcanzado] ...")
             break
-    
-    full_context_str = "\n".join(context_parts)
-    
-    if not full_context_str:
-        full_context_str = "No se encontró información específica en la base de conocimientos para este ejercicio."
 
-    final_prompt = SYSTEM_PROMPT_TEMPLATE.replace(
-        "{{CONTEXTO_RECUPERADO}}", full_context_str
-    ).replace(
-        "{{PREGUNTA_USUARIO}}", f"Ejercicio Fiscal: {ejercicio}\nPregunta: {question}"
-    )
-    
-    return final_prompt
+    full_context_str = "\n".join(context_parts) or "No se encontró información específica en la base de conocimientos para este ejercicio."
+
+    # ✅ aquí se usa TU prompt real, con {context}
+    return SYSTEM_PROMPT.format(context=full_context_str)
 
 def generate_answer_stream(system_prompt: str, user_prompt: str = "Proceda con el análisis.") -> Generator[str, None, None]:
-    """Generador que consume la API de OpenAI en modo streaming"""
     stream = client.chat.completions.create(
         model=MODEL_CHAT,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        temperature=0.2, 
+        temperature=0.2,
         stream=True
     )
 
@@ -149,34 +123,18 @@ def generate_answer_stream(system_prompt: str, user_prompt: str = "Proceda con e
         if content:
             yield content
 
-# ==========================================
-# 3. FUNCIÓN PRINCIPAL (ORQUESTADOR)
-# ==========================================
-# Esta es la función que llama main.py 
 def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025) -> str:
-    """
-    Flujo completo: Conectar DB -> Vectorizar -> Buscar Contexto -> Generar Respuesta
-    """
     conn = None
     try:
-        # 1. Conectar a Supabase
         conn = get_db_connection()
-        
-        # 2. Vectorizar la pregunta
         query_vec = embed_text(question)
-        
-        # 3. Recuperar contexto (RAG)
         evidence = retrieve_context(conn, query_vec, ejercicio, top_k=8)
-        
-        # 4. Construir Prompt
         full_prompt = build_system_message(evidence, ejercicio, question)
-        
-        # 5. Generar respuesta (Consumimos el stream aquí para devolver texto completo a la API)
+
         response_text = ""
-        stream_gen = generate_answer_stream(full_prompt)
-        for chunk in stream_gen:
+        for chunk in generate_answer_stream(full_prompt):
             response_text += chunk
-            
+
         return response_text
 
     except Exception as e:
