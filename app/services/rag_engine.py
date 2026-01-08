@@ -52,7 +52,7 @@ def _vec_literal(vec: List[float]) -> str:
     return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
 # =========================
-# Retrieval (año exacto)
+# Retrieval (incluye base year=0 y NULL)
 # =========================
 
 def retrieve_context(
@@ -95,7 +95,10 @@ def retrieve_context(
     LIMIT %s
     """
 
-    cur.execute(sql, (qv, ejercicio, prefer_doc_type, prefer_doc_type, exclude_doc_type, exclude_doc_type, qv, top_k))
+    cur.execute(
+        sql,
+        (qv, ejercicio, prefer_doc_type, prefer_doc_type, exclude_doc_type, exclude_doc_type, qv, top_k)
+    )
     rows = cur.fetchall()
     cur.close()
 
@@ -114,7 +117,6 @@ def retrieve_context(
         })
     return evidence
 
-
 # =========================
 # Continuidad normativa (fallback)
 # =========================
@@ -129,13 +131,13 @@ def retrieve_context_with_fallback(
     q = (question or "").lower()
 
     wants_rmf = ("rmf" in q) or ("miscel" in q) or ("miscelánea" in q)
-    mentions_anexo = ("anexo" in q)  # si el usuario pidió un anexo, no lo excluyas
+    mentions_anexo = ("anexo" in q)
     mentions_dof = ("dof" in q) or ("diario oficial" in q)
 
-    # Detecta pregunta "general" de deducciones (para priorizar LISR)
+    # Heurística: si suena a requisitos generales de ISR/deducciones => primero ley (LISR)
     general_deductions = any(k in q for k in [
         "requisitos", "deduccion", "deducciones", "deducción", "deducible", "autorizada",
-        "estrictamente indispensable", "cfdi", "comprobante", "forma de pago"
+        "estrictamente indispensable", "cfdi", "comprobante", "forma de pago", "isr", "lisr", "impuesto sobre la renta"
     ])
 
     prefer_doc_type = "rmf" if wants_rmf else None
@@ -144,16 +146,13 @@ def retrieve_context_with_fallback(
     prefer_doc_type_second = None
 
     if general_deductions:
-        # Primero LISR (ley) y luego RMF como complemento
         prefer_doc_type_first = "ley"
         prefer_doc_type_second = "rmf"
     else:
-        # Si el usuario pide RMF, prioriza RMF
         prefer_doc_type_first = "rmf" if wants_rmf else None
         prefer_doc_type_second = None
 
-    # Si el usuario NO pidió anexo explícitamente y la pregunta es "general",
-    # primero intentamos excluir anexos para evitar sesgo a 16-A.
+    # Excluir anexos en primera pasada si NO los pidió (evita sesgo a 16-A)
     exclude_doc_type_first_pass = None
     if not mentions_anexo and not mentions_dof:
         exclude_doc_type_first_pass = "anexo"
@@ -161,14 +160,12 @@ def retrieve_context_with_fallback(
     # Candidatos de año: prioridad + continuidad
     candidates: List[int] = []
     if ejercicio in (2025, 2026):
-        candidates.append(ejercicio)
-        candidates.extend([2024, 2023, 2022])
+        candidates = [ejercicio, 2024, 2023, 2022]
     else:
-        candidates.append(ejercicio)
-        candidates.extend([y for y in range(ejercicio - 1, 2021, -1)])
+        candidates = [ejercicio] + [y for y in range(ejercicio - 1, 2021, -1)]
 
     for y in candidates:
-        # PASO 1A: preferencia fuerte (ley para "requisitos generales")
+        # PASO 1A: preferencia fuerte (ley)
         if prefer_doc_type_first:
             ev = retrieve_context(
                 conn, query_vec, y, top_k=top_k,
@@ -178,7 +175,7 @@ def retrieve_context_with_fallback(
             if ev:
                 return ev, y
 
-        # PASO 1B: segundo tipo preferido (RMF como complemento)
+        # PASO 1B: complemento (rmf)
         if prefer_doc_type_second:
             ev = retrieve_context(
                 conn, query_vec, y, top_k=top_k,
@@ -188,7 +185,7 @@ def retrieve_context_with_fallback(
             if ev:
                 return ev, y
 
-        # PASO 1C: lógica original (compatibilidad)
+        # PASO 1C: compatibilidad (prefer_doc_type original)
         ev = retrieve_context(
             conn, query_vec, y, top_k=top_k,
             prefer_doc_type=prefer_doc_type,
@@ -197,7 +194,7 @@ def retrieve_context_with_fallback(
         if ev:
             return ev, y
 
-        # PASO 2: intentar RMF sin excluir (por si RMF quedó mal etiquetado)
+        # PASO 2: RMF sin excluir (por si quedó mal etiquetada)
         if prefer_doc_type:
             ev = retrieve_context(
                 conn, query_vec, y, top_k=top_k,
@@ -207,13 +204,12 @@ def retrieve_context_with_fallback(
             if ev:
                 return ev, y
 
-        # PASO 3: abrir abanico (cualquier doc_type del año/base)
+        # PASO 3: abrir abanico
         ev = retrieve_context(conn, query_vec, y, top_k=top_k, prefer_doc_type=None, exclude_doc_type=None)
         if ev:
             return ev, y
 
     return [], ejercicio
-
 
 # =========================
 # Prompt build
@@ -270,17 +266,14 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
     try:
         conn = get_db_connection()
 
-        # 1) Embed de la pregunta
         query_vec = embed_text(question)
 
-        # 2) Retrieval con continuidad normativa
-        evidence, used_year = retrieve_context_with_fallback(conn, query_vec, ejercicio, question=question, top_k=8)
+        evidence, used_year = retrieve_context_with_fallback(
+            conn, query_vec, ejercicio, question=question, top_k=8
+        )
 
-        # 3) System prompt con contexto
         system_prompt = build_system_message(evidence)
 
-        # 4) User prompt: AQUÍ va la pregunta real (CAMBIO #1)
-        #    + exige nota si el año usado es distinto (CAMBIO #2)
         note_rule = ""
         if used_year != ejercicio:
             note_rule = f'\n\nAl final agrega exactamente: "Nota: Respuesta basada en normativa {used_year} por continuidad legal."'
@@ -295,7 +288,6 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
             f"{note_rule}"
         )
 
-        # 5) Generar respuesta (consumimos streaming y devolvemos texto completo)
         response_text = ""
         for chunk in generate_answer_stream(system_prompt, user_prompt=user_prompt):
             response_text += chunk
