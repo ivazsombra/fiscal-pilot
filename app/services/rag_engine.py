@@ -62,11 +62,21 @@ def retrieve_context(
     top_k: int = 8,
     prefer_doc_type: str | None = None,
     exclude_doc_type: str | None = None,
+    include_base_year0: bool = True,
+    include_null_year: bool = True,
 ) -> List[Dict[str, Any]]:
     cur = conn.cursor()
     qv = _vec_literal(query_vec)
 
-    sql = """
+    year_clause = "d.exercise_year = %s"
+    if include_base_year0 and include_null_year:
+        year_clause = "(d.exercise_year = %s OR d.exercise_year = 0 OR d.exercise_year IS NULL)"
+    elif include_base_year0:
+        year_clause = "(d.exercise_year = %s OR d.exercise_year = 0)"
+    elif include_null_year:
+        year_clause = "(d.exercise_year = %s OR d.exercise_year IS NULL)"
+
+    sql = f"""
     SELECT 
         c.chunk_id,
         d.source_filename,
@@ -78,7 +88,7 @@ def retrieve_context(
         1 - (c.embedding <=> %s::vector) as score
     FROM public.chunks c
     JOIN public.documents d ON c.document_id = d.document_id
-    WHERE d.exercise_year = %s
+    WHERE {year_clause}
       AND (%s IS NULL OR d.doc_type = %s)
       AND (%s IS NULL OR d.doc_type <> %s)
     ORDER BY c.embedding <=> %s::vector
@@ -122,7 +132,25 @@ def retrieve_context_with_fallback(
     mentions_anexo = ("anexo" in q)  # si el usuario pidió un anexo, no lo excluyas
     mentions_dof = ("dof" in q) or ("diario oficial" in q)
 
+    # Detecta pregunta "general" de deducciones (para priorizar LISR)
+    general_deductions = any(k in q for k in [
+        "requisitos", "deduccion", "deducciones", "deducción", "deducible", "autorizada",
+        "estrictamente indispensable", "cfdi", "comprobante", "forma de pago"
+    ])
+
     prefer_doc_type = "rmf" if wants_rmf else None
+
+    prefer_doc_type_first = None
+    prefer_doc_type_second = None
+
+    if general_deductions:
+        # Primero LISR (ley) y luego RMF como complemento
+        prefer_doc_type_first = "ley"
+        prefer_doc_type_second = "rmf"
+    else:
+        # Si el usuario pide RMF, prioriza RMF
+        prefer_doc_type_first = "rmf" if wants_rmf else None
+        prefer_doc_type_second = None
 
     # Si el usuario NO pidió anexo explícitamente y la pregunta es "general",
     # primero intentamos excluir anexos para evitar sesgo a 16-A.
@@ -140,7 +168,27 @@ def retrieve_context_with_fallback(
         candidates.extend([y for y in range(ejercicio - 1, 2021, -1)])
 
     for y in candidates:
-        # PASO 1: preferencia por RMF (si aplica) y excluir anexos (si aplica)
+        # PASO 1A: preferencia fuerte (ley para "requisitos generales")
+        if prefer_doc_type_first:
+            ev = retrieve_context(
+                conn, query_vec, y, top_k=top_k,
+                prefer_doc_type=prefer_doc_type_first,
+                exclude_doc_type=exclude_doc_type_first_pass
+            )
+            if ev:
+                return ev, y
+
+        # PASO 1B: segundo tipo preferido (RMF como complemento)
+        if prefer_doc_type_second:
+            ev = retrieve_context(
+                conn, query_vec, y, top_k=top_k,
+                prefer_doc_type=prefer_doc_type_second,
+                exclude_doc_type=exclude_doc_type_first_pass
+            )
+            if ev:
+                return ev, y
+
+        # PASO 1C: lógica original (compatibilidad)
         ev = retrieve_context(
             conn, query_vec, y, top_k=top_k,
             prefer_doc_type=prefer_doc_type,
@@ -149,13 +197,17 @@ def retrieve_context_with_fallback(
         if ev:
             return ev, y
 
-        # PASO 2: si no hubo, intentar RMF sin excluir (por si RMF está dentro de "anexo" mal etiquetado)
+        # PASO 2: intentar RMF sin excluir (por si RMF quedó mal etiquetado)
         if prefer_doc_type:
-            ev = retrieve_context(conn, query_vec, y, top_k=top_k, prefer_doc_type=prefer_doc_type, exclude_doc_type=None)
+            ev = retrieve_context(
+                conn, query_vec, y, top_k=top_k,
+                prefer_doc_type=prefer_doc_type,
+                exclude_doc_type=None
+            )
             if ev:
                 return ev, y
 
-        # PASO 3: abrir abanico (cualquier doc_type del año)
+        # PASO 3: abrir abanico (cualquier doc_type del año/base)
         ev = retrieve_context(conn, query_vec, y, top_k=top_k, prefer_doc_type=None, exclude_doc_type=None)
         if ev:
             return ev, y
