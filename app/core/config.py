@@ -1,13 +1,13 @@
 import os
 from dotenv import load_dotenv
 
-# Carga variables locales si existen
+# Carga el archivo .env si existe (útil para local)
 load_dotenv()
 
-# Variables confirmadas
+# Prioriza la variable de entorno del sistema (Render) sobre la local
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-DIRECT_URL = os.getenv("DIRECT_URL")  # Usamos el nombre exacto que tienes
+# Buscamos DATABASE_URL (nombre estándar en Render) o DIRECT_URL
+DIRECT_URL = os.getenv("DATABASE_URL") or os.getenv("DIRECT_URL")
 
-# Configuración fija (si deseas cambiar estos modelos, indícamelo)
 MODEL_EMBED = "text-embedding-3-small"
 MODEL_CHAT = "gpt-4o"

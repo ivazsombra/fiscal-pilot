@@ -2,6 +2,7 @@ import json
 import psycopg2
 from typing import List, Dict, Any, Generator, Optional
 from openai import OpenAI
+from app.core.config import DIRECT_URL
 
 # Importamos la configuración desde la ruta correcta de la nueva estructura
 from app.core.config import OPENAI_API_KEY, DIRECT_URL, MODEL_EMBED, MODEL_CHAT
@@ -34,8 +35,13 @@ INSTRUCCIONES DE FORMATO:
 # ==========================================
 
 def get_db_connection():
-    """Establece conexión con Supabase usando la variable DIRECT_URL"""
-    return psycopg2.connect(DIRECT_URL)
+    # Si DIRECT_URL está vacío, intentamos leerlo directamente del sistema
+    conn_str = DIRECT_URL or os.getenv("DATABASE_URL")
+    
+    if not conn_str:
+        raise ValueError("No se encontró la cadena de conexión a la base de datos.")
+        
+    return psycopg2.connect(conn_str)
 
 def embed_text(text: str) -> List[float]:
     """Convierte texto a vector usando OpenAI"""
