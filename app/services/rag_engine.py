@@ -1,5 +1,6 @@
 import os
 import psycopg2
+import re
 from typing import List, Dict, Any, Generator, Tuple
 from openai import OpenAI
 
@@ -50,6 +51,59 @@ def embed_text(text: str) -> List[float]:
 def _vec_literal(vec: List[float]) -> str:
     # pgvector literal: [0.1,0.2,0.3]
     return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
+# =========================
+# Article lookup (determinístico por metadata)
+# =========================
+
+ARTICLE_REF_RE = re.compile(r"\b(?:art(?:í|i)culo|art)\.?\s*(\d+)\b", re.IGNORECASE)
+
+def try_get_article_chunks(
+    conn,
+    document_id: str,
+    article_number: int,
+    limit: int = 20
+) -> List[Dict[str, Any]]:
+    """
+    Recupera chunks de un artículo usando metadata->>'article_number'.
+    Ordena por chunk_id para mantener continuidad.
+    """
+    cur = conn.cursor()
+    sql = """
+    SELECT
+      c.chunk_id,
+      d.source_filename,
+      c.text,
+      d.doc_type,
+      d.published_date,
+      c.page_start,
+      c.page_end,
+      1.0 as score
+    FROM public.chunks c
+    JOIN public.documents d ON c.document_id = d.document_id
+    WHERE c.document_id = %s
+      AND (c.metadata->>'article_number') = %s
+    ORDER BY c.chunk_id ASC
+    LIMIT %s
+    """
+    cur.execute(sql, (document_id, str(article_number), limit))
+    rows = cur.fetchall()
+    cur.close()
+
+    evidence: List[Dict[str, Any]] = []
+    for r in rows:
+        pub_date = r[4].isoformat() if r[4] else "S/F"
+        evidence.append({
+            "chunk_id": r[0],
+            "source_filename": r[1],
+            "chunk_text": r[2],
+            "doc_type": r[3],
+            "published_date": pub_date,
+            "page_start": r[5],
+            "page_end": r[6],
+            "score": float(r[7]),
+        })
+    return evidence
+
 
 # =========================
 # Retrieval (incluye base year=0 y NULL)
