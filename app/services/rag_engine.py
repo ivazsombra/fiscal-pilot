@@ -1,6 +1,7 @@
 # app/services/rag_engine.py
 
 import os
+import re
 import psycopg2
 from typing import List, Dict, Any, Generator
 
@@ -30,7 +31,7 @@ Tu misión es dar respuestas técnicas, fundamentadas y fáciles de leer para co
     * Reglas Misceláneas (ej. **Regla 3.5.1**)
     * Fechas clave y plazos.
 3.  **Estilo:** Mantén un tono profesional pero directo. No uses saludos excesivos.
-4. Para listar requisitos, SIEMPRE usa viñetas con "-" (no numeración romana) y cita la referencia en negritas, por ejemplo: **Art. 27, fracc. I LISR**.
+4.  Para listar requisitos u obligaciones, SIEMPRE usa viñetas con "-" (no numeración romana) y cita la referencia en negritas, por ejemplo: **Art. 27, fracc. I LISR**.
 
 ---
 CONTEXTO RECUPERADO DE LA BASE DE DATOS:
@@ -128,13 +129,26 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         if used_year not in (ejercicio, 0):
             note_rule = f'\n\nAl final agrega exactamente: "Nota: Respuesta basada en normativa {used_year} por continuidad legal."'
 
+        # ---- regla especial: si es consulta por Artículo, obliga texto literal primero ----
+        is_article_query = bool(re.search(r"\b(?:art(?:í|i)culo|art)\.?\s*\d+\b", question or "", re.IGNORECASE))
+        literal_rule = ""
+        if is_article_query:
+            literal_rule = (
+                "INSTRUCCIÓN ESPECIAL (ARTÍCULO): Si la pregunta pide qué 'dice/establece/transcribe' un Artículo, "
+                "primero cita el TEXTO literal del Artículo tal como aparece en el contexto (sin parafrasear). "
+                "Después, si es útil, agrega una explicación breve. "
+                "No inventes fracciones ni texto que no esté en el contexto.\n\n"
+            )
+
         user_prompt = (
             f"Ejercicio fiscal solicitado: {ejercicio}\n"
             f"Ejercicio de evidencia recuperada: {used_year}\n"
             f"Régimen (si aplica): {regimen}\n"
             f"Pregunta: {question}\n\n"
+            f"{literal_rule}"
             f"Responde específicamente a la pregunta usando SOLO el contexto recuperado. "
-            f"Obligatorio: usa viñetas con '-' para cada requisito y cita la referencia exacta en negritas (ej. **Art. 27, fracc. I LISR**)."
+            f"Si enumeras puntos, usa SIEMPRE viñetas con '-' (no párrafos continuos ni numeración). "
+            f"Obligatorio: cita la referencia exacta en negritas (ej. **Art. 27, fracc. I LISR**)."
             f"{note_rule}"
         )
 
