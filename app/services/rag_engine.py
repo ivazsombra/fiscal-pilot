@@ -27,6 +27,8 @@ Tu misión es dar respuestas técnicas, fundamentadas y fáciles de leer para co
     * Reglas Misceláneas (ej. **Regla 3.5.1**)
     * Fechas clave y plazos.
 3.  **Estilo:** Mantén un tono profesional pero directo. No uses saludos excesivos.
+4. Para listar requisitos, SIEMPRE usa viñetas con "-" (no numeración romana) y cita la referencia en negritas, por ejemplo: **Art. 27, fracc. I LISR**.
+
 
 ---
 CONTEXTO RECUPERADO DE LA BASE DE DATOS:
@@ -361,7 +363,7 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
             f"Régimen (si aplica): {regimen}\n"
             f"Pregunta: {question}\n\n"
             f"Responde específicamente a la pregunta usando SOLO el contexto recuperado. "
-            f"Cita reglas/artículos en **negritas** y usa viñetas (-) para requisitos u obligaciones."
+            f"Obligatorio: usa viñetas con '-' para cada requisito y cita la referencia exacta en negritas (ej. **Art. 27, fracc. I LISR**)."
             f"{note_rule}"
         )
 
