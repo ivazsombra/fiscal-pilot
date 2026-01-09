@@ -183,6 +183,29 @@ def retrieve_context_with_fallback(
     top_k: int = 8
 ) -> Tuple[List[Dict[str, Any]], int]:
     q = (question or "").lower()
+        # -------------------------
+    # Fast path: Artículo N (LISR) por metadata
+    # -------------------------
+    m = ARTICLE_REF_RE.search(question or "")
+    if m:
+        art_num = int(m.group(1))
+
+        # Si suena fiscal, prioriza LISR
+        is_fiscal = any(k in q for k in [
+            "lisr", "isr", "renta", "deducc", "deducib", "cfdi", "comprobante",
+            "sat", "gasto", "requisito", "deducciones"
+        ])
+
+        if is_fiscal:
+            ev_direct = try_get_article_chunks(
+                conn,
+                document_id="LEY_DEL_IMPUESTO_SOBRE_LA_RENTA",
+                article_number=art_num,
+                limit=max(12, top_k)
+            )
+            if ev_direct:
+                return ev_direct, 0
+
 
     wants_rmf = ("rmf" in q) or ("miscel" in q) or ("miscelánea" in q)
     mentions_anexo = ("anexo" in q)
@@ -329,7 +352,7 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         system_prompt = build_system_message(evidence)
 
         note_rule = ""
-        if used_year != ejercicio:
+        if used_year not in (ejercicio, 0):
             note_rule = f'\n\nAl final agrega exactamente: "Nota: Respuesta basada en normativa {used_year} por continuidad legal."'
 
         user_prompt = (
