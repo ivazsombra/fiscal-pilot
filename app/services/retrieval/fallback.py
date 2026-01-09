@@ -5,7 +5,10 @@ from .article_lookup import try_get_article_chunks
 from .doc_router import resolve_candidate_documents
 from .vector_retrieval import retrieve_context
 
-ARTICLE_REF_RE = re.compile(r"\b(?:art(?:í|i)culo|art)\.?\s*(\d+)\b", re.IGNORECASE)
+ARTICLE_REF_RE = re.compile(
+    r"\b(?:art(?:í|i)culo|art)\.?\s*(\d+)\s*(?:[-–]\s*([a-zA-Z]))?\b",
+    re.IGNORECASE
+)
 
 def retrieve_context_with_fallback(
     conn,
@@ -20,9 +23,14 @@ def retrieve_context_with_fallback(
     m = ARTICLE_REF_RE.search(question or "")
     if m:
         art_num = int(m.group(1))
+        art_suffix = (m.group(2) or "").upper().strip()
         for doc_id in resolve_candidate_documents(question):
             ev_direct = try_get_article_chunks(
-                conn, document_id=doc_id, article_number=art_num, limit=max(12, top_k)
+                conn, 
+                document_id=doc_id,
+                article_number=art_num,
+                article_suffix=art_suffix,
+                limit=max(12, top_k)
             )
             if ev_direct:
                 return ev_direct, 0
