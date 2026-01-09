@@ -133,11 +133,15 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         is_article_query = bool(re.search(r"\b(?:art(?:í|i)culo|art)\.?\s*\d+\b", question or "", re.IGNORECASE))
         literal_rule = ""
         if is_article_query:
-            literal_rule = (
-                "INSTRUCCIÓN ESPECIAL (ARTÍCULO): Si la pregunta pide qué 'dice/establece/transcribe' un Artículo, "
-                "primero cita el TEXTO literal del Artículo tal como aparece en el contexto (sin parafrasear). "
-                "Después, si es útil, agrega una explicación breve. "
-                "No inventes fracciones ni texto que no esté en el contexto.\n\n"
+            literal_rule = (          
+                "INSTRUCCIÓN ESPECIAL (ARTÍCULO): Si la pregunta pide qué 'dice', 'establece' o 'transcribe' un Artículo, "
+                "primero reproduce el TEXTO literal del Artículo tal como aparece en el contexto recuperado (sin parafrasear), "
+                "en un bloque de cita. "
+                "Después agrega una explicación breve en viñetas usando SIEMPRE '-'. "
+                "Incluye la referencia exacta en negritas (por ejemplo: **Art. 31, fracc. IV CPEUM**). "
+                "No inventes fracciones, numerales ni texto que no esté en el contexto.\n\n"
+                "Si el contexto NO contiene explícitamente el número de fracción (I, II, III, IV), indícalo de forma expresa "
+                "y cita únicamente el texto disponible.\n\n"
             )
 
         user_prompt = (
