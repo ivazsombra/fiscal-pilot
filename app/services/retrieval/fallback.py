@@ -9,6 +9,7 @@ ARTICLE_REF_RE = re.compile(
     r"\b(\d{1,3})\s*[-–]\s*([a-zA-Z])\b(\s*bis)?",
     re.IGNORECASE
 )
+ARTICLE_CODE_RE = re.compile(r"\b(\d{1,3})\s*[-–]\s*([a-zA-Z])\b(\s*bis)?", re.IGNORECASE)
 
 def retrieve_context_with_fallback(
     conn,
@@ -20,7 +21,6 @@ def retrieve_context_with_fallback(
     q = (question or "").lower()
 
     # Fast path: Artículo N (genérico por doc_router)
-       # Fast path: Artículo N (genérico por doc_router)
     m = ARTICLE_REF_RE.search(question or "")
     m2 = ARTICLE_CODE_RE.search(question or "")
 
