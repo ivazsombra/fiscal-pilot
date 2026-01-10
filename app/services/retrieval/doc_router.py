@@ -18,10 +18,19 @@ BASE_LEGAL_DOCS = [
 ]
 ARTICLE_RE = re.compile(r"\b(?:art(?:í|i)culo|art)\b|\b\d{1,3}\s*-\s*[A-Za-z]\b", re.IGNORECASE)
 CFF_RE = re.compile(r"\b(cff|c[oó]digo fiscal)\b", re.IGNORECASE)
+
 def resolve_candidate_documents(question: str) -> List[str]:
     q = question or ""
+
+    # REGLA DURA:
+    # Si el usuario menciona CFF y parece pedir un ARTÍCULO (69-B, 17-H, etc),
+    # NO permitas otros documentos: solo CFF.
+    if CFF_RE.search(q) and ARTICLE_RE.search(q):
+        return ["CODIGO_FISCAL_DE_LA_FEDERACION"]
+
     resolved: List[str] = []
     for rx, doc_id in DOC_ALIASES:
         if rx.search(q):
             resolved.append(doc_id)
+
     return resolved or BASE_LEGAL_DOCS

@@ -6,7 +6,7 @@ from .doc_router import resolve_candidate_documents
 from .vector_retrieval import retrieve_context
 
 ARTICLE_REF_RE = re.compile(
-    r"\b(?:art(?:í|i)culo|art)\.?\s*(\d+)\s*(?:[-–]\s*([a-zA-Z]))?\b",
+    r"\b(\d{1,3})\s*[-–]\s*([a-zA-Z])\b(\s*bis)?",
     re.IGNORECASE
 )
 
@@ -20,18 +20,36 @@ def retrieve_context_with_fallback(
     q = (question or "").lower()
 
     # Fast path: Artículo N (genérico por doc_router)
+       # Fast path: Artículo N (genérico por doc_router)
     m = ARTICLE_REF_RE.search(question or "")
-    if m:
-        art_num = int(m.group(1))
-        art_suffix = (m.group(2) or "").upper().strip()
+    m2 = ARTICLE_CODE_RE.search(question or "")
+
+    if m or m2:
+        if m:
+            art_num = int(m.group(1))
+            art_suffix = (m.group(2) or "").upper().strip()
+            wants_bis = False
+        else:
+            art_num = int(m2.group(1))
+            art_suffix = (m2.group(2) or "").upper().strip()
+            wants_bis = bool(m2.group(3))
+
         for doc_id in resolve_candidate_documents(question):
             ev_direct = try_get_article_chunks(
-                conn, 
+                conn,
                 document_id=doc_id,
                 article_number=art_num,
                 article_suffix=art_suffix,
                 limit=max(12, top_k)
             )
+
+            # Si el usuario NO pidió "bis", filtra chunks que claramente sean "Bis"
+            if ev_direct and not wants_bis:
+                ev_direct = [
+                    ev for ev in ev_direct
+                    if not re.search(rf"\b{art_num}\s*[-–]?\s*{art_suffix}\s+bis\b", (ev.get("chunk_text") or "").lower())
+                ]
+
             if ev_direct:
                 return ev_direct, 0
 
