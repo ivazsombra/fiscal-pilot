@@ -9,6 +9,8 @@ from openai import OpenAI
 
 from app.core.config import OPENAI_API_KEY, DIRECT_URL, MODEL_EMBED, MODEL_CHAT
 from app.services.retrieval.fallback import retrieve_context_with_fallback  # <- modular
+from app.services.retrieval.doc_router import resolve_candidate_documents
+
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -105,10 +107,11 @@ def generate_answer_stream(system_prompt: str, user_prompt: str) -> Generator[st
 
 
 # =========================
-# Orquestador principal
+# Orquestador principal esta es la inea original def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025) -> str:
 # =========================
 
-def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025) -> str:
+def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025, trace: bool = False):
+
     conn = None
     try:
         conn = get_db_connection()
@@ -160,10 +163,32 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         for chunk in generate_answer_stream(system_prompt, user_prompt=user_prompt):
             response_text += chunk
 
-        return response_text
+        debug = {}
+        if trace:
+            debug = {
+                "router": {
+                    "candidates": resolve_candidate_documents(question),
+                    },
+                    "retrieval": {
+                        "used_year": used_year,
+                        "evidence_count": len(evidence),
+                        "sources_preview": [
+                            {
+                                "source_filename": ev.get("source_filename", ""),
+                                "doc_type": ev.get("doc_type", ""),
+                            }
+                            for ev in evidence
+                        ],
+                    },
+            }
+        return response_text, debug
+
 
     except Exception as e:
-        return f"Error en el motor RAG: {str(e)}"
+        err = f"Error en el motor RAG: {str(e)}"
+        if trace:
+            return err, {"error": str(e)}
+        return err, {}
     finally:
         if conn:
             conn.close()

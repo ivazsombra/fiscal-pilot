@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
-
+from app.services.retrieval.doc_router import resolve_candidate_documents
 from app.services.rag_engine import generate_response_with_rag
 
 app = FastAPI(title="Agente Fiscal Pro 2025")
@@ -14,6 +14,7 @@ class QueryRequest(BaseModel):
     question: str
     regimen: Optional[str] = "General"
     ejercicio: Optional[int] = 2025
+    trace: Optional[bool] = False # esta linea se coloco para el debug
 
 @app.get("/")
 async def read_root():
@@ -26,11 +27,22 @@ def health_check():
 @app.post("/chat")
 def chat_endpoint(request: QueryRequest):
     try:
-        response_text = generate_response_with_rag(
+        response_text, debug = generate_response_with_rag(
             question=request.question,
             regimen=request.regimen or "General",
             ejercicio=request.ejercicio or 2025,
+            trace=bool(getattr(request, "trace", False)),
         )
+
+        payload = {"answer": response_text, "response": response_text}
+        if getattr(request, "trace", False):
+            payload["debug"] = debug
+
+        return JSONResponse(
+            content=payload,
+            media_type="application/json; charset=utf-8",
+        )
+
 
         # Compatibilidad: frontend usa answer; mantenemos response por si algo lo consume
         return JSONResponse(
