@@ -1,5 +1,5 @@
 # app/services/retrieval/fallback.py
-# VERSIÓN 2.0 - Con búsqueda híbrida (vectorial + keywords)
+# VERSIÓN 3.0 - Corregido error "tuple index out of range" y lógica de vigencia
 
 import re
 from typing import List, Dict, Any, Tuple, Optional
@@ -14,6 +14,8 @@ def retrieve_by_keywords(conn, keywords: List[str], ejercicio: int, limit: int =
     """
     Búsqueda complementaria por palabras clave (ILIKE).
     Útil cuando la búsqueda vectorial no encuentra términos específicos.
+    
+    Nota: exercise_year = 0 indica leyes federales (vigentes siempre)
     """
     if not keywords:
         return []
@@ -26,18 +28,18 @@ def retrieve_by_keywords(conn, keywords: List[str], ejercicio: int, limit: int =
     
     where_keywords = " OR ".join(conditions)
     
+    # Query con lógica de vigencia: exercise_year = 0 (leyes) o año específico
     query = f"""
         SELECT 
-            c.text AS chunk_text,
+            c.text,
             c.document_id,
-            d.source_filename,
-            d.doc_type,
-            d.exercise_year,
-            c.metadata
+            COALESCE(d.source_filename, '') as source_filename,
+            COALESCE(d.doc_type, '') as doc_type,
+            COALESCE(d.exercise_year, 0) as exercise_year
         FROM chunks c
-        JOIN documents d ON c.document_id = d.document_id
+        LEFT JOIN documents d ON c.document_id = d.document_id
         WHERE ({where_keywords})
-          AND (d.exercise_year = %s OR d.exercise_year = 0 OR d.exercise_year IS NULL)
+          AND (d.exercise_year = 0 OR d.exercise_year = %s OR d.exercise_year IS NULL)
         ORDER BY 
             CASE WHEN d.doc_type = 'ley' THEN 1
                  WHEN d.doc_type = 'rmf' THEN 2
@@ -54,17 +56,19 @@ def retrieve_by_keywords(conn, keywords: List[str], ejercicio: int, limit: int =
             results = []
             for row in rows:
                 results.append({
-                    "chunk_text": row[0],
-                    "document_id": row[1],
-                    "source_filename": row[2],
-                    "doc_type": row[3],
-                    "exercise_year": row[4],
-                    "metadata": row[5],
-                    "source": "keyword"  # Marcamos el origen
+                    "chunk_text": row[0] if len(row) > 0 else "",
+                    "document_id": row[1] if len(row) > 1 else "",
+                    "source_filename": row[2] if len(row) > 2 else "",
+                    "doc_type": row[3] if len(row) > 3 else "",
+                    "exercise_year": row[4] if len(row) > 4 else 0,
+                    "metadata": {},
+                    "source": "keyword"
                 })
             return results
     except Exception as e:
         print(f"Error en búsqueda por keywords: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -78,17 +82,17 @@ def merge_results(vector_results: List[Dict], keyword_results: List[Dict], top_k
     
     # Primero agregamos resultados vectoriales (mayor relevancia)
     for r in vector_results:
-        text_hash = hash(r.get("chunk_text", "")[:200])
-        if text_hash not in seen_texts:
-            seen_texts.add(text_hash)
+        text_preview = (r.get("chunk_text") or "")[:200]
+        if text_preview and text_preview not in seen_texts:
+            seen_texts.add(text_preview)
             r["source"] = "vector"
             merged.append(r)
     
     # Luego agregamos resultados por keyword que no estén duplicados
     for r in keyword_results:
-        text_hash = hash(r.get("chunk_text", "")[:200])
-        if text_hash not in seen_texts:
-            seen_texts.add(text_hash)
+        text_preview = (r.get("chunk_text") or "")[:200]
+        if text_preview and text_preview not in seen_texts:
+            seen_texts.add(text_preview)
             merged.append(r)
     
     return merged[:top_k]
@@ -100,21 +104,14 @@ def retrieve_context_with_fallback(
     ejercicio: int, 
     question: str, 
     top_k: int = 12,
-    keywords: Optional[List[str]] = None  # NUEVO parámetro
+    keywords: Optional[List[str]] = None
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Recuperación de contexto con fallback jerárquico y búsqueda híbrida.
     
-    Args:
-        conn: Conexión a la base de datos
-        query_vec: Vector de embedding de la consulta
-        ejercicio: Año fiscal
-        question: Pregunta original del usuario
-        top_k: Número máximo de resultados
-        keywords: Lista de palabras clave para búsqueda complementaria
-    
-    Returns:
-        Tuple con lista de evidencia y año utilizado
+    Nota sobre vigencia:
+    - exercise_year = 0: Leyes federales (vigentes siempre)
+    - exercise_year = 2025: RMF, Anexos del ejercicio 2025
     """
     q = (question or "").lower()
     
@@ -142,7 +139,7 @@ def retrieve_context_with_fallback(
         # Búsqueda vectorial principal
         ev_vector = retrieve_context(conn, query_vec, y, top_k=top_k)
         
-        # NUEVO: Búsqueda complementaria por keywords
+        # Búsqueda complementaria por keywords (incluye leyes con year=0)
         ev_keywords = []
         if keywords:
             ev_keywords = retrieve_by_keywords(conn, keywords, y, limit=top_k // 2)
