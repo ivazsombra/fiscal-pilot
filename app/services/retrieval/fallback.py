@@ -1,5 +1,5 @@
 # app/services/retrieval/fallback.py
-# VERSIÓN 3.0 - Corregido error "tuple index out of range" y lógica de vigencia
+# VERSIÓN 3.0 - Corregido error "tuple index out of range" y lógica de vigencia.
 
 import re
 from typing import List, Dict, Any, Tuple, Optional
