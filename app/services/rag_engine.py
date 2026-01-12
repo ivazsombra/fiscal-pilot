@@ -1,4 +1,5 @@
 # app/services/rag_engine.py
+# VERSIÓN 2.0 - Con Query Expansion y top_k dinámico
 
 import os
 import re
@@ -8,11 +9,15 @@ from typing import List, Dict, Any, Generator
 from openai import OpenAI
 
 from app.core.config import OPENAI_API_KEY, DIRECT_URL, MODEL_EMBED, MODEL_CHAT
-from app.services.retrieval.fallback import retrieve_context_with_fallback  # <- modular
+from app.services.retrieval.fallback import retrieve_context_with_fallback
 from app.services.retrieval.doc_router import resolve_candidate_documents
+from app.services.retrieval.query_expansion import expand_query  # NUEVO
 
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Obtener top_k de variables de entorno (default 12)
+TOP_K = int(os.getenv("TOP_K_DEFAULT", 12))
 
 SYSTEM_PROMPT = """
 Eres un Asesor Fiscal Experto (IA) especializado en la legislación mexicana para el ejercicio 2025.
@@ -86,14 +91,10 @@ def build_system_message(evidence: List[Dict[str, Any]]) -> str:
 # LLM streaming
 # =========================
 
-# --- REEMPLAZO EN app/services/rag_engine.py ---
-
 def generate_answer_stream(system_prompt: str, user_prompt: str, history: List[Dict[str, str]] = None) -> Generator[str, None, None]:
-    # Construimos los mensajes incluyendo el historial previo
     messages = [{"role": "system", "content": system_prompt}]
     
     if history:
-        # Añadimos los últimos 4 mensajes para mantener contexto sin saturar
         messages.extend(history[-4:])
         
     messages.append({"role": "user", "content": user_prompt})
@@ -110,20 +111,28 @@ def generate_answer_stream(system_prompt: str, user_prompt: str, history: List[D
         if content:
             yield content
 
+
 def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025, trace: bool = False, history: List[Dict[str, str]] = None):
     conn = None
     try:
         conn = get_db_connection()
-        query_vec = embed_text(question)
+        
+        # NUEVO: Query Expansion
+        expanded_question, keywords = expand_query(question)
+        
+        # Generamos embedding de la pregunta expandida
+        query_vec = embed_text(expanded_question)
 
-        # El fallback ahora usa nuestra nueva lógica jerárquica
+        # MODIFICADO: Usamos TOP_K de variable de entorno
         evidence, used_year = retrieve_context_with_fallback(
-            conn, query_vec, ejercicio, question=question, top_k=8
+            conn, query_vec, ejercicio, 
+            question=question,  # Pasamos la original para el router
+            top_k=TOP_K,
+            keywords=keywords   # NUEVO: Pasamos keywords para búsqueda híbrida
         )
 
         system_prompt = build_system_message(evidence)
         
-        # Reglas de formato y notas (se mantienen igual)
         note_rule = f'\n\nNota: Basado en normativa {used_year}.' if used_year not in (ejercicio, 0) else ""
         
         user_prompt = (
@@ -134,15 +143,19 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         )
 
         response_text = ""
-        # Pasamos el historial a la generación
         for chunk in generate_answer_stream(system_prompt, user_prompt, history):
             response_text += chunk
 
-        debug = {"used_year": used_year, "evidence_count": len(evidence)} if trace else {}
+        debug = {
+            "used_year": used_year, 
+            "evidence_count": len(evidence),
+            "expanded_query": expanded_question,  # NUEVO: Para debugging
+            "keywords": keywords
+        } if trace else {}
+        
         return response_text, debug
 
     except Exception as e:
         return f"Error: {str(e)}", {"error": str(e)}
     finally:
         if conn: conn.close()
-
