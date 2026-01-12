@@ -1,7 +1,5 @@
 # app/services/retrieval/article_lookup.py
-
 from typing import List, Dict, Any
-
 
 def try_get_article_chunks(
     conn,
@@ -12,30 +10,21 @@ def try_get_article_chunks(
 ) -> List[Dict[str, Any]]:
     """
     Lookup determinístico por artículo usando metadata.
-
-    Soporta sufijos tipo 69-B / 17-H si existen en metadata->>'article_suffix'.
-    - article_number: 69
-    - article_suffix: "B" (o "" si no aplica)
+    Corregido para manejar tipos de datos mixtos en JSON.
     """
     art_suffix = (article_suffix or "").strip().upper()
-
     cur = conn.cursor()
 
+    # Usamos un casting explícito a TEXT para asegurar la comparación
     if art_suffix:
         sql = """
         SELECT
-          c.chunk_id,
-          d.source_filename,
-          c.text,
-          d.doc_type,
-          d.published_date,
-          c.page_start,
-          c.page_end,
-          1.0 as score
+          c.chunk_id, d.source_filename, c.text, d.doc_type,
+          d.published_date, c.page_start, c.page_end, 1.0 as score
         FROM public.chunks c
         JOIN public.documents d ON c.document_id = d.document_id
         WHERE c.document_id = %s
-          AND (c.metadata->>'article_number') = %s
+          AND (c.metadata->>'article_number')::text = %s
           AND upper(coalesce(c.metadata->>'article_suffix','')) = %s
         ORDER BY c.chunk_id ASC
         LIMIT %s
@@ -44,18 +33,12 @@ def try_get_article_chunks(
     else:
         sql = """
         SELECT
-          c.chunk_id,
-          d.source_filename,
-          c.text,
-          d.doc_type,
-          d.published_date,
-          c.page_start,
-          c.page_end,
-          1.0 as score
+          c.chunk_id, d.source_filename, c.text, d.doc_type,
+          d.published_date, c.page_start, c.page_end, 1.0 as score
         FROM public.chunks c
         JOIN public.documents d ON c.document_id = d.document_id
         WHERE c.document_id = %s
-          AND (c.metadata->>'article_number') = %s
+          AND (c.metadata->>'article_number')::text = %s
         ORDER BY c.chunk_id ASC
         LIMIT %s
         """
