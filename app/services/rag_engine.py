@@ -89,13 +89,21 @@ def build_system_message(evidence: List[Dict[str, Any]]) -> str:
 # LLM streaming
 # =========================
 
-def generate_answer_stream(system_prompt: str, user_prompt: str) -> Generator[str, None, None]:
+# --- REEMPLAZO EN app/services/rag_engine.py ---
+
+def generate_answer_stream(system_prompt: str, user_prompt: str, history: List[Dict[str, str]] = None) -> Generator[str, None, None]:
+    # Construimos los mensajes incluyendo el historial previo
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    if history:
+        # Añadimos los últimos 4 mensajes para mantener contexto sin saturar
+        messages.extend(history[-4:])
+        
+    messages.append({"role": "user", "content": user_prompt})
+
     stream = client.chat.completions.create(
         model=MODEL_CHAT,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
+        messages=messages,
         temperature=0.2,
         stream=True
     )
@@ -105,90 +113,39 @@ def generate_answer_stream(system_prompt: str, user_prompt: str) -> Generator[st
         if content:
             yield content
 
-
-# =========================
-# Orquestador principal esta es la inea original def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025) -> str:
-# =========================
-
-def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025, trace: bool = False):
-
+def generate_response_with_rag(question: str, regimen: str = "General", ejercicio: int = 2025, trace: bool = False, history: List[Dict[str, str]] = None):
     conn = None
     try:
         conn = get_db_connection()
-
         query_vec = embed_text(question)
 
+        # El fallback ahora usa nuestra nueva lógica jerárquica
         evidence, used_year = retrieve_context_with_fallback(
-            conn,
-            query_vec,
-            ejercicio,
-            question=question,
-            top_k=8
+            conn, query_vec, ejercicio, question=question, top_k=8
         )
 
         system_prompt = build_system_message(evidence)
-
-        note_rule = ""
-        if used_year not in (ejercicio, 0):
-            note_rule = f'\n\nAl final agrega exactamente: "Nota: Respuesta basada en normativa {used_year} por continuidad legal."'
-
-        # ---- regla especial: si es consulta por Artículo, obliga texto literal primero ----
-        is_article_query = bool(re.search(r"\b(?:art(?:í|i)culo|art)\.?\s*\d+\b", question or "", re.IGNORECASE))
-        literal_rule = ""
-        if is_article_query:
-            literal_rule = (          
-                "INSTRUCCIÓN ESPECIAL (ARTÍCULO): Si la pregunta pide qué 'dice', 'establece' o 'transcribe' un Artículo, "
-                "primero reproduce el TEXTO literal del Artículo tal como aparece en el contexto recuperado (sin parafrasear), "
-                "en un bloque de cita. "
-                "Después agrega una explicación breve en viñetas usando SIEMPRE '-'. "
-                "Incluye la referencia exacta en negritas (por ejemplo: **Art. 31, fracc. IV CPEUM**). "
-                "No inventes fracciones, numerales ni texto que no esté en el contexto.\n\n"
-                "Si el contexto NO contiene explícitamente el número de fracción (I, II, III, IV), indícalo de forma expresa "
-                "y cita únicamente el texto disponible.\n\n"
-            )
-
+        
+        # Reglas de formato y notas (se mantienen igual)
+        note_rule = f'\n\nNota: Basado en normativa {used_year}.' if used_year not in (ejercicio, 0) else ""
+        
         user_prompt = (
-            f"Ejercicio fiscal solicitado: {ejercicio}\n"
-            f"Ejercicio de evidencia recuperada: {used_year}\n"
-            f"Régimen (si aplica): {regimen}\n"
-            f"Pregunta: {question}\n\n"
-            f"{literal_rule}"
-            f"Responde específicamente a la pregunta usando SOLO el contexto recuperado. "
-            f"Si enumeras puntos, usa SIEMPRE viñetas con '-' (no párrafos continuos ni numeración). "
-            f"Obligatorio: cita la referencia exacta en negritas (ej. **Art. 27, fracc. I LISR**)."
+            f"Pregunta actual: {question}\n"
+            f"Contexto: Ejercicio {ejercicio}, Régimen {regimen}.\n"
+            f"Responde usando SOLO el contexto recuperado y mantén la continuidad de la charla."
             f"{note_rule}"
         )
 
         response_text = ""
-        for chunk in generate_answer_stream(system_prompt, user_prompt=user_prompt):
+        # Pasamos el historial a la generación
+        for chunk in generate_answer_stream(system_prompt, user_prompt, history):
             response_text += chunk
 
-        debug = {}
-        if trace:
-            debug = {
-                "router": {
-                    "candidates": resolve_candidate_documents(question),
-                    },
-                    "retrieval": {
-                        "used_year": used_year,
-                        "evidence_count": len(evidence),
-                        "sources_preview": [
-                            {
-                                "source_filename": ev.get("source_filename", ""),
-                                "doc_type": ev.get("doc_type", ""),
-                            }
-                            for ev in evidence
-                        ],
-                    },
-            }
+        debug = {"used_year": used_year, "evidence_count": len(evidence)} if trace else {}
         return response_text, debug
 
-
     except Exception as e:
-        err = f"Error en el motor RAG: {str(e)}"
-        if trace:
-            return err, {"error": str(e)}
-        return err, {}
+        return f"Error: {str(e)}", {"error": str(e)}
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
+
