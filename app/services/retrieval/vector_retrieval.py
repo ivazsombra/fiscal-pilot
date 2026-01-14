@@ -43,6 +43,7 @@ def retrieve_context(
       AND (%s IS NULL OR d.doc_type = %s)
       AND (%s IS NULL OR d.doc_type <> %s)
       AND (%s IS NULL OR %s <> 'rmf' OR c.norm_kind IS NOT NULL)
+      AND (d.doc_type <> 'rmf' OR c.norm_kind IS NOT NULL)
     ORDER BY c.embedding <=> %s::vector
     LIMIT %s
     """
