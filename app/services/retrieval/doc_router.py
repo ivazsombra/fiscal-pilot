@@ -39,7 +39,16 @@ def resolve_candidate_documents(question: str) -> List[str]:
             if re.search(rf"\b{p}\b", q):
                 resolved.append(doc_id)
                 # Si encontramos la ley, también sugerimos su reglamento automáticamente
-                resolved.append(f"REGLAMENTO_{doc_id}")
+                REG_MAP = {
+                    "CODIGO_FISCAL_DE_LA_FEDERACION": "REGLAMENTO_CODIGO_FISCAL_FEDERACION",
+                    "LEY_DEL_IMPUESTO_SOBRE_LA_RENTA": "REGLAMENTO_LEY_IMPUESTO_SOBRE_RENTA",
+                    "LEY_DEL_IMPUESTO_VALOR_AGREGADO": "REGLAMENTO_LEY_DEL_IMPUESTO_VALOR_AGREGADO",
+                    "LEY_ADUANERA": "REGLAMENTO_LEY_ADUANERA",
+                }
+                reg = REG_MAP.get(doc_id)
+                if reg:
+                    resolved.append(reg)
+
                 break # Ya encontramos esta ley, pasamos a la siguiente
 
     # Si no detectamos ninguna ley, usamos las 3 básicas (Constitución, CFF, LISR)

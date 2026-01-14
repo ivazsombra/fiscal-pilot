@@ -1,17 +1,10 @@
-# --- Sistema y Python ---
-venv/
-.venv/
+_archive/
+.env
+.vscode/
 __pycache__/
 *.pyc
-.env
-.DS_Store
-
-# --- Archivos Pesados que NO necesitamos en el servidor ---
-*.rar
-*.zip
-*.dump
-
-# --- Datos (Ya están en Supabase) ---
+.pytest_cache/
+venv/
+_archive/
 data/
-storage/
-*.pdf
+**/.pytest_cache/
