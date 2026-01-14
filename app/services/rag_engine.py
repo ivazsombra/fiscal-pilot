@@ -12,6 +12,7 @@ from app.core.config import OPENAI_API_KEY, DIRECT_URL, MODEL_EMBED, MODEL_CHAT
 from app.services.retrieval.fallback import retrieve_context_with_fallback
 from app.services.retrieval.doc_router import resolve_candidate_documents
 from app.services.retrieval.query_expansion import expand_query  # NUEVO
+from app.services.retrieval.rmf_rule_lookup import try_get_rmf_rule_chunks
 
 
 client = OpenAI(api_key=OPENAI_API_KEY)
