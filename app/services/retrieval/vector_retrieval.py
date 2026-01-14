@@ -42,14 +42,24 @@ def retrieve_context(
     WHERE {year_clause}
       AND (%s IS NULL OR d.doc_type = %s)
       AND (%s IS NULL OR d.doc_type <> %s)
+      AND (%s IS NULL OR %s <> 'rmf' OR c.norm_kind IS NOT NULL)
     ORDER BY c.embedding <=> %s::vector
     LIMIT %s
     """
 
     cur.execute(
         sql,
-        (qv, ejercicio, prefer_doc_type, prefer_doc_type, exclude_doc_type, exclude_doc_type, qv, top_k)
+        (
+            qv,
+            ejercicio,
+            prefer_doc_type, prefer_doc_type,
+            exclude_doc_type, exclude_doc_type,
+            prefer_doc_type, prefer_doc_type,
+            qv,
+            top_k
+        )
     )
+
     rows = cur.fetchall()
     cur.close()
 
