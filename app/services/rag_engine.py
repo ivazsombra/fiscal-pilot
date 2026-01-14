@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Generator
 from openai import OpenAI
 
 from app.core.config import OPENAI_API_KEY, DIRECT_URL, MODEL_EMBED, MODEL_CHAT
+
 from app.services.retrieval.fallback import retrieve_context_with_fallback
 from app.services.retrieval.doc_router import resolve_candidate_documents
 from app.services.retrieval.query_expansion import expand_query  # NUEVO
@@ -117,6 +118,77 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
     conn = None
     try:
         conn = get_db_connection()
+                # RMF: intento exacto si la pregunta menciona "Regla X.X.X"
+        m_rule = re.search(r"(?i)\bregla\s+(\d+(?:\.\d+)+)\b", question or "")
+        if m_rule:
+            rule_id = m_rule.group(1)
+            rmf_evidence = try_get_rmf_rule_chunks(conn, ejercicio, rule_id, prefer_document_id=None, limit=50)
+
+            if rmf_evidence:
+                evidence = rmf_evidence
+                used_year = ejercicio
+                expanded_question = question  # no expandimos; ya es exacto
+                keywords = []
+            else:
+                # Si no se encontró exacto, sigue el flujo normal
+                expanded_question, keywords = expand_query(question)
+                # --- NUEVO: si la pregunta pide una Regla RMF específica, hacemos lookup exacto ---
+                m_rule = re.search(r"(?i)\bregla\s+(\d+(?:\.\d+){1,5})\b", question or "")
+                if m_rule:
+                    rule_id = m_rule.group(1)
+                    evidence = try_get_rmf_rule_chunks(conn, ejercicio, rule_id, limit=TOP_K)
+                    used_year = ejercicio
+                else:
+                    # Generamos embedding de la pregunta expandida
+                    query_vec = embed_text(expanded_question)
+
+                    # Vector + fallback (como estaba)
+                    evidence, used_year = retrieve_context_with_fallback(
+                        conn, query_vec, ejercicio,
+                        question=question,
+                        top_k=TOP_K,
+                        keywords=keywords
+                    )
+
+        # --- RMF: intento de lookup exacto por "Regla X.X.X" antes del vector ---
+        m_rule = re.search(r"\b(?:regla)\s+(\d+(?:\.\d+){1,5})\b", (question or ""), flags=re.IGNORECASE)
+        if m_rule:
+            rule_id = m_rule.group(1)
+
+            # Preferimos el documento base RMF del año (si existe), para evitar compilados/anexos
+            prefer_doc = f"RMF_{ejercicio}-30122024" if ejercicio == 2025 else None
+
+            rmf_evidence = try_get_rmf_rule_chunks(
+                conn,
+                ejercicio=ejercicio,
+                rule_id=rule_id,
+                prefer_document_id=prefer_doc,
+                limit=TOP_K,
+            )
+
+            if rmf_evidence:
+                evidence = rmf_evidence
+                used_year = ejercicio
+            else:
+                # Si no se encuentra por lookup, seguimos con fallback vectorial normal
+                evidence, used_year = retrieve_context_with_fallback(
+                    conn, query_vec, ejercicio,
+                    question=question,
+                    top_k=TOP_K,
+                    keywords=keywords
+                )
+                
+        #else:
+            # flujo normal
+           # expanded_question, keywords = expand_query(question)
+            #query_vec = embed_text(expanded_question)
+            #evidence, used_year = retrieve_context_with_fallback(
+             #   conn, query_vec, ejercicio,
+             #   question=question,
+             #   top_k=TOP_K,
+             #   keywords=keywords
+            #)
+
         
         # NUEVO: Query Expansion
         expanded_question, keywords = expand_query(question)
@@ -150,8 +222,12 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         debug = {}
         if trace:
             route_used = "vector_fallback"
-            if any((e.get("source") == "article_lookup") for e in evidence):
+            if any((e.get("source") == "rmf_rule_lookup") for e in evidence):
+                route_used = "rmf_rule_lookup"
+            elif any((e.get("source") == "article_lookup") for e in evidence):
                 route_used = "article_lookup"
+
+
 
             debug = {
                 "route_used": route_used,
