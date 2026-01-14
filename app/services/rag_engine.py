@@ -131,38 +131,39 @@ def generate_response_with_rag(
         keywords: List[str] = []
 
         # ------------------------------------------------------------
-        # 1) RMF: lookup exacto si la pregunta menciona "Regla x.x.x"
+        # 1) RMF: lookup exacto si la pregunta menciona "Regla X.X.X"
         # ------------------------------------------------------------
         m_rule = re.search(r"(?i)\bregla\s+(\d+(?:\.\d+){1,5})\b", question or "")
         if m_rule:
             rule_id = m_rule.group(1)
 
-            # Preferimos el documento base RMF del año cuando aplique
-            prefer_doc = "RMF_2025-30122024" if ejercicio == 2025 else None
+            # Opcional: si quieres forzar un RMF base por año desde env:
+            # set RMF_BASE_DOC_ID_2025=RMF_2025-30122024, etc.
+            prefer_doc = os.getenv(f"RMF_BASE_DOC_ID_{ejercicio}", None)
 
-            rmf_evidence = try_get_rmf_rule_chunks(
+            evidence = try_get_rmf_rule_chunks(
                 conn,
                 ejercicio=ejercicio,
                 rule_id=rule_id,
                 prefer_document_id=prefer_doc,
                 limit=TOP_K,
             )
-
-            if rmf_evidence:
-                evidence = rmf_evidence
+            if evidence:
                 used_year = ejercicio
                 expanded_question = question
                 keywords = []
 
         # ------------------------------------------------------------
-        # 2) Si no hubo evidencia por RMF exacto, usamos vector + fallback
+        # 2) Si no hubo match exacto, seguimos con vector + fallback
         # ------------------------------------------------------------
         if not evidence:
             expanded_question, keywords = expand_query(question)
             query_vec = embed_text(expanded_question)
 
             evidence, used_year = retrieve_context_with_fallback(
-                conn, query_vec, ejercicio,
+                conn,
+                query_vec,
+                ejercicio,
                 question=question,
                 top_k=TOP_K,
                 keywords=keywords
@@ -173,7 +174,7 @@ def generate_response_with_rag(
         # ------------------------------------------------------------
         system_prompt = build_system_message(evidence)
 
-        note_rule = f'\n\nNota: Basado en normativa {used_year}.' if used_year not in (ejercicio, 0) else ""
+        note_rule = f"\n\nNota: Basado en normativa {used_year}." if used_year not in (ejercicio, 0) else ""
 
         user_prompt = (
             f"Pregunta actual: {question}\n"
@@ -225,3 +226,5 @@ def generate_response_with_rag(
     finally:
         if conn:
             conn.close()
+
+
