@@ -152,6 +152,38 @@ def generate_response_with_rag(
                 used_year = ejercicio
                 expanded_question = question
                 keywords = []
+                        # Si el usuario pide cita literal/textual, regresamos el chunk tal cual (sin LLM)
+            if re.search(r"(?i)\b(c[ií]tame|textualmente|cita literal|cita textual)\b", question or ""):
+                literal = evidence[0].get("chunk_text", "") or ""
+                quoted = literal.replace("\n", "\n> ")
+                response = "> " + quoted
+
+                dbg = {}
+                if trace:
+                    dbg = {
+                        "route_used": "rmf_rule_lookup",
+                        "used_year": used_year,
+                        "evidence_count": len(evidence),
+                        "expanded_query": expanded_question,
+                        "keywords": keywords,
+                        "sources": [
+                            {
+                                "chunk_id": e.get("chunk_id"),
+                                "document_id": e.get("document_id"),
+                                "norm_kind": e.get("norm_kind"),
+                                "norm_id": e.get("norm_id"),
+                                "doc_type": e.get("doc_type"),
+                                "source_filename": e.get("source_filename"),
+                                "page_start": e.get("page_start"),
+                                "page_end": e.get("page_end"),
+                                "score": e.get("score"),
+                                "source": e.get("source"),
+                                "excerpt": (e.get("chunk_text") or "")[:200],
+                            }
+                            for e in evidence[:8]
+                        ],
+                    }
+                return response, dbg
 
         # ------------------------------------------------------------
         # 2) Si no hubo match exacto, seguimos con vector + fallback
