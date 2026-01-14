@@ -1,49 +1,52 @@
 # app/services/retrieval/article_lookup.py
 from typing import List, Dict, Any
 
+
 def try_get_article_chunks(
     conn,
     document_id: str,
     article_number: int,
     article_suffix: str = "",
-    limit: int = 20
+    suffix_word: str = "",
+    limit: int = 50
 ) -> List[Dict[str, Any]]:
     """
-    Lookup determinístico por artículo usando metadata.
-    Corregido para manejar tipos de datos mixtos en JSON.
+    Lookup determinístico por artículo usando el esquema Ruta2:
+      chunks.norm_kind = 'ARTICLE'
+      chunks.norm_id   = '69-B' | '88-TER' | '69-B-BIS' | '137-BIS', etc.
     """
-    art_suffix = (article_suffix or "").strip().upper()
+    # Normalización a tu convención de norm_id
+    num = str(article_number).strip()
+    lit = (article_suffix or "").strip().upper()
+    suf = (suffix_word or "").strip().upper()
+
+    norm_id = num
+    if lit:
+        norm_id += f"-{lit}"
+    if suf:
+        norm_id += f"-{suf}"
+
+    sql = """
+    SELECT
+      c.chunk_id,
+      d.source_filename,
+      c.text,
+      d.doc_type,
+      d.published_date,
+      c.page_start,
+      c.page_end,
+      1.0 as score
+    FROM public.chunks c
+    JOIN public.documents d ON c.document_id = d.document_id
+    WHERE c.document_id = %s
+      AND c.norm_kind = 'ARTICLE'
+      AND c.norm_id = %s
+    ORDER BY c.chunk_id ASC
+    LIMIT %s
+    """
+
     cur = conn.cursor()
-
-    # Usamos un casting explícito a TEXT para asegurar la comparación
-    if art_suffix:
-        sql = """
-        SELECT
-          c.chunk_id, d.source_filename, c.text, d.doc_type,
-          d.published_date, c.page_start, c.page_end, 1.0 as score
-        FROM public.chunks c
-        JOIN public.documents d ON c.document_id = d.document_id
-        WHERE c.document_id = %s
-          AND (c.metadata->>'article_number')::text = %s
-          AND upper(coalesce(c.metadata->>'article_suffix','')) = %s
-        ORDER BY c.chunk_id ASC
-        LIMIT %s
-        """
-        cur.execute(sql, (document_id, str(article_number), art_suffix, limit))
-    else:
-        sql = """
-        SELECT
-          c.chunk_id, d.source_filename, c.text, d.doc_type,
-          d.published_date, c.page_start, c.page_end, 1.0 as score
-        FROM public.chunks c
-        JOIN public.documents d ON c.document_id = d.document_id
-        WHERE c.document_id = %s
-          AND (c.metadata->>'article_number')::text = %s
-        ORDER BY c.chunk_id ASC
-        LIMIT %s
-        """
-        cur.execute(sql, (document_id, str(article_number), limit))
-
+    cur.execute(sql, (document_id, norm_id, limit))
     rows = cur.fetchall()
     cur.close()
 

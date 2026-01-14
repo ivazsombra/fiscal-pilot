@@ -118,16 +118,23 @@ def retrieve_context_with_fallback(
     # 1. CAMINO RÁPIDO: Búsqueda por Artículo Directo
     m = ARTICLE_REF_RE.search(question or "")
     if m:
-        art_num = int(m.group(1))
-        art_suffix = (m.group(2) or "").upper().strip()
-        wants_bis = bool(m.group(3))
-        
-        for doc_id in resolve_candidate_documents(question):
-            ev_direct = try_get_article_chunks(conn, doc_id, art_num, art_suffix, limit=12)
-            if ev_direct:
-                if not wants_bis:
-                    ev_direct = [e for e in ev_direct if "bis" not in (e.get("chunk_text") or "").lower()]
+         art_num = int(m.group(1))
+         art_suffix = (m.group(2) or "").upper().strip()
+         suffix_word = "BIS" if (m.group(3) or "").strip() else ""
+
+         for doc_id in resolve_candidate_documents(question):
+             ev_direct = try_get_article_chunks(
+                 conn,
+                 doc_id,
+                 art_num,
+                 art_suffix,
+                 suffix_word=suffix_word,
+                 limit=12
+             )
+             if ev_direct:
                 return ev_direct, 0
+
+
 
     # 2. BÚSQUEDA VECTORIAL INTELIGENTE (Jerarquía de Prevalencia)
     years_to_check = [ejercicio, 2024, 2023, 2022] if ejercicio >= 2025 else [ejercicio]
