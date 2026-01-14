@@ -27,6 +27,9 @@ def retrieve_context(
     sql = f"""
     SELECT 
         c.chunk_id,
+        c.document_id,
+        c.norm_kind,
+        c.norm_id,
         d.source_filename,
         c.text,
         d.doc_type,
@@ -52,15 +55,20 @@ def retrieve_context(
 
     evidence: List[Dict[str, Any]] = []
     for r in rows:
-        pub_date = r[4].isoformat() if r[4] else "S/F"
+        pub_date = r[7].isoformat() if r[7] else "S/F"
         evidence.append({
             "chunk_id": r[0],
-            "source_filename": r[1],
-            "chunk_text": r[2],
-            "doc_type": r[3],
+            "document_id": r[1],
+            "norm_kind": r[2],
+            "norm_id": r[3],
+            "source_filename": r[4],
+            "chunk_text": r[5],
+            "doc_type": r[6],
             "published_date": pub_date,
-            "page_start": r[5],
-            "page_end": r[6],
-            "score": float(r[7]),
+            "page_start": r[8],
+            "page_end": r[9],
+            "score": float(r[10]),
+            "source": "vector",
         })
+
     return evidence

@@ -55,6 +55,9 @@ def try_get_article_chunks(
         pub_date = r[4].isoformat() if r[4] else "S/F"
         evidence.append({
             "chunk_id": r[0],
+            "document_id": document_id,
+            "norm_kind": "ARTICLE",
+            "norm_id": norm_id,
             "source_filename": r[1],
             "chunk_text": r[2],
             "doc_type": r[3],
@@ -62,5 +65,7 @@ def try_get_article_chunks(
             "page_start": r[5],
             "page_end": r[6],
             "score": float(r[7]),
+            "source": "article_lookup",
         })
+
     return evidence

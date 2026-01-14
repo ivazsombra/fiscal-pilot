@@ -146,12 +146,36 @@ def generate_response_with_rag(question: str, regimen: str = "General", ejercici
         for chunk in generate_answer_stream(system_prompt, user_prompt, history):
             response_text += chunk
 
-        debug = {
-            "used_year": used_year, 
-            "evidence_count": len(evidence),
-            "expanded_query": expanded_question,  # NUEVO: Para debugging
-            "keywords": keywords
-        } if trace else {}
+        debug = {}
+        if trace:
+            route_used = "vector_fallback"
+            if any((e.get("source") == "article_lookup") for e in evidence):
+                route_used = "article_lookup"
+
+            debug = {
+                "route_used": route_used,
+                "used_year": used_year,
+                "evidence_count": len(evidence),
+                "expanded_query": expanded_question,
+                "keywords": keywords,
+                "sources": [
+                    {
+                        "chunk_id": e.get("chunk_id"),
+                        "document_id": e.get("document_id"),
+                        "norm_kind": e.get("norm_kind"),
+                        "norm_id": e.get("norm_id"),
+                        "doc_type": e.get("doc_type"),
+                        "source_filename": e.get("source_filename"),
+                        "page_start": e.get("page_start"),
+                        "page_end": e.get("page_end"),
+                        "score": e.get("score"),
+                        "source": e.get("source"),
+                        "excerpt": (e.get("chunk_text") or "")[:200],
+                    }
+                    for e in evidence[:8]
+                ],
+            }
+
         
         return response_text, debug
 
