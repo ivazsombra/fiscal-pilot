@@ -200,6 +200,55 @@ def generate_response_with_rag(
                 top_k=TOP_K,
                 keywords=keywords
             )
+                # ------------------------------------------------------------
+        # 2.5) Si el usuario pide "cita literal/textual" y venimos de rmf_rule_lookup,
+        #      devolvemos la(s) regla(s) sin pasar por el LLM.
+        #
+        #      Importante: rmf_rule_lookup suele traer 1 chunk de "índice/título"
+        #      y 1+ chunks con el "cuerpo" de la regla. Para cita literal queremos el cuerpo.
+        #      Heurística: nos quedamos con los chunks de la(s) página(s) MÁS ALTA(s).
+        # ------------------------------------------------------------
+        wants_literal = bool(re.search(r"(?i)\b(c[ií]tame|cita|textual|literal)\b", question or ""))
+
+        if wants_literal and evidence and all((e.get("source") == "rmf_rule_lookup") for e in evidence):
+            # 1) Determinar la página "más profunda" (máxima) dentro de la evidencia
+            pages = [int(e.get("page_start")) for e in evidence if e.get("page_start") is not None]
+            max_page = max(pages) if pages else None
+
+            # 2) Filtrar: quedarnos con los chunks de esa página (normalmente es el cuerpo)
+            if max_page is not None:
+                selected = [e for e in evidence if int(e.get("page_start") or -1) == max_page]
+            else:
+                selected = evidence
+
+            # 3) Orden estable por página y chunk_id
+            selected = sorted(
+                selected,
+                key=lambda e: (
+                    int(e.get("page_start") or 10**9),
+                    int(e.get("page_end") or 10**9),
+                    int(e.get("chunk_id") or 10**9),
+                ),
+            )
+
+            literal = "\n\n".join((e.get("chunk_text") or "").strip() for e in selected).strip()
+
+            # Formato blockquote sin usar backslashes dentro de f-string (evita SyntaxError)
+            lines = literal.splitlines()
+            response_text = "> " + "\n> ".join(lines)
+
+            if trace:
+                debug = {
+                    "route_used": "rmf_rule_lookup",
+                    "used_year": used_year,
+                    "evidence_count": len(evidence),
+                    "literal_max_page": max_page,
+                    "literal_selected_chunk_ids": [e.get("chunk_id") for e in selected],
+                }
+                return response_text, debug
+
+            return response_text, {}
+
 
         # ------------------------------------------------------------
         # 3) Construcción de prompt + respuesta

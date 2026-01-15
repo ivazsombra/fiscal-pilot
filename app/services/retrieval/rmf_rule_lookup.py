@@ -1,4 +1,5 @@
 # app/services/retrieval/rmf_rule_lookup.py
+import re
 from typing import List, Dict, Any, Optional
 
 
@@ -69,4 +70,14 @@ def try_get_rmf_rule_chunks(
             "score": float(r[10]),
             "source": "rmf_rule_lookup",
         })
+        # ------------------------------------------------------------
+    # Post-proceso: preferir el "cuerpo" de la regla (inicia con "2.x.x.")
+    # y evitar encabezados/índices tipo "regla 2.x.x."
+    # ------------------------------------------------------------
+    body_pat = re.compile(rf"(?im)^\s*{re.escape(rule_id)}\.\s")
+
+    body = [e for e in evidence if body_pat.search((e.get("chunk_text") or ""))]
+    if body:
+        evidence = body
+    
     return evidence
