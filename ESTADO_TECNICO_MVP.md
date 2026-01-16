@@ -561,8 +561,72 @@ Zero contaminación
 Cuando regreses mañana, partimos de aquí con sistema ya confiable.
 Dormiste sobre una base sólida hoy. 🧠⚖️
 
-ChatGPT puede cometer errores. Considera verificar la información imp
+
 
 “La reingesta oficial se ejecuta únicamente con python reingest.py ... y el parser único vive en article_parser.py.”
 
-Aquí está el ESTADO_TECNICO_MVP.md:
+14/01/2025
+
+## RMF (Resolución Miscelánea Fiscal)
+
+- RMF: reingest de `RMF_2025-30122024.pdf` completado con **1606 chunks** (norm_kind/norm_id/page_start completos).
+- RMF: retrieval exacto implementado vía `rmf_rule_lookup` (por `chunks.norm_kind='RULE'` + `chunks.norm_id='X.X.X'`).
+- RMF: `rag_engine.py` prioriza `rmf_rule_lookup` cuando detecta patrón **"Regla X.X.X"**; si no hay match, cae a `vector_fallback`.
+- RMF: “cita literal/textual” devuelve **directo** (sin LLM) cuando la evidencia viene 100% de `rmf_rule_lookup`.
+
+### Pendientes RMF
+- Pendiente: poblar `documents.published_date` desde el filename (ej. `RMF_2025-30122024.pdf` → 30/12/2024).
+- Pendiente: (opcional) preferir siempre `RMF_BASE_DOC_ID_{YEAR}` para evitar compilados/anexos cuando existan.
+
+## Cambios recientes (código)
+- `app/services/retrieval/rmf_rule_lookup.py`: lookup determinístico por regla.
+- `app/services/rag_engine.py`: wiring de ruta RMF exacta + bypass de LLM para “cita literal”.
+
+## Checklist de regresión (Leyes) al retomar
+- Validar que consultas de leyes sigan respondiendo con evidencia:
+  - Artículos CFF/LISR/IVA (texto literal y explicación).
+- Validar que el fallback vectorial no se “contamine” con RMF:
+  - RMF debe resolverse por `rmf_rule_lookup` cuando sea regla explícita.
+- Verificar que `article_lookup` siga funcionando igual para artículos (si aplica).
+Si estado_tecnico.md ya existía con contenido previo, pega esto como nueva sección al final o debajo del encabezado principal.
+
+2) Pruebas mínimas para confirmar que NO rompimos “leyes”
+Corre estas pruebas locales (en tu repo) y revisa que el debug traiga evidencia > 0 y que el texto no sea “No cuento con el fragmento…” salvo que sea una consulta fuera de base.
+
+A) RMF (control)
+powershell
+Copiar código
+python -c "from app.services.rag_engine import generate_response_with_rag; q='Cítame textualmente la Regla 2.1.1 de la RMF 2025'; r,d=generate_response_with_rag(q, ejercicio=2025, trace=True); print(d); print('---'); print(r[:400])"
+Esperado:
+
+route_used: rmf_rule_lookup
+
+evidence_count >= 1
+
+B) CFF (ley)
+powershell
+Copiar código
+python -c "from app.services.rag_engine import generate_response_with_rag; q='Cítame textualmente el Artículo 29-A del CFF 2025'; r,d=generate_response_with_rag(q, ejercicio=2025, trace=True); print(d); print('---'); print(r[:400])"
+Esperado:
+
+route_used NO debe ser rmf_rule_lookup
+
+evidence_count razonable (ideal > 0)
+
+C) LISR (ley)
+powershell
+Copiar código
+python -c "from app.services.rag_engine import generate_response_with_rag; q='Cítame textualmente el Artículo 27 de la LISR 2025'; r,d=generate_response_with_rag(q, ejercicio=2025, trace=True); print(d); print('---'); print(r[:400])"
+Si estas dos (CFF/LISR) se degradan, entonces el problema no es RMF sino el pipeline general de retrieval/ingesta para leyes (o filtros de year/doc_type).
+
+3) Git (solo cuando tú lo decidas)
+Como dijiste “por ahora esos no los consideramos”, deja los untracked fuera.
+Cuando quieras subir estado_tecnico.md sin meter basura, haz:
+
+powershell
+Copiar código
+git add estado_tecnico.md
+git commit -m "Docs: update estado tecnico RMF"
+git push origin main
+Si me pegas el git diff de app/services/rag_engine.py (solo la función generate_response_with_rag) te digo si quedó limpio y sin riesgo de afectar leyes, pero con lo que ya estás viendo (RMF OK + el resto sigue en fallback), la regresión se detecta rápido con las 2 pruebas de arriba.
+

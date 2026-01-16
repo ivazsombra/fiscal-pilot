@@ -114,10 +114,15 @@ def retrieve_context_with_fallback(
     - exercise_year = 2025: RMF, Anexos del ejercicio 2025
     """
     q = (question or "").lower()
-    
+    has_regla = bool(re.search(r"(?i)\bregla\b", question or ""))
+    has_rmf = bool(re.search(r"(?i)\brmf\b", question or ""))    
+
     # 1. CAMINO RÁPIDO: Búsqueda por Artículo Directo
     m = ARTICLE_REF_RE.search(question or "")
     if m:
+    #    IMPORTANTE: si el usuario dice "Regla ...", NO debemos confundirlo con Artículo N-A.
+     m = ARTICLE_REF_RE.search(question or "")
+     if m and not has_regla:    
         art_num = int(m.group(1))
         art_suffix = (m.group(2) or "").upper().strip()
         wants_bis = bool(m.group(3))
@@ -134,10 +139,26 @@ def retrieve_context_with_fallback(
     
     all_evidence = []
     final_year = ejercicio
+    # Preferencias para vector según intención:
+    prefer_doc_type = None
+    include_base_year0 = True
+    include_null_year = True
+    if has_regla or has_rmf:
+        prefer_doc_type = "rmf"
+        include_base_year0 = False
+        include_null_year = False
 
     for y in years_to_check:
         # Búsqueda vectorial principal
-        ev_vector = retrieve_context(conn, query_vec, y, top_k=top_k)
+        ev_vector = retrieve_context(
+            conn,
+            query_vec,
+            y,
+            top_k=top_k,
+            prefer_doc_type=prefer_doc_type,
+            include_base_year0=include_base_year0,
+            include_null_year=include_null_year,
+        )
         
         # Búsqueda complementaria por keywords (incluye leyes con year=0)
         ev_keywords = []

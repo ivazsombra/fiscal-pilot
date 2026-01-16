@@ -153,10 +153,10 @@ def generate_response_with_rag(
                 expanded_question = question
                 keywords = []
                         # Si el usuario pide cita literal/textual, regresamos el chunk tal cual (sin LLM)
-            if re.search(r"(?i)\b(c[ií]tame|textualmente|cita literal|cita textual)\b", question or ""):
-                literal = evidence[0].get("chunk_text", "") or ""
-                quoted = literal.replace("\n", "\n> ")
-                response = "> " + quoted
+                if re.search(r"(?i)\b(c[ií]tame|textualmente|cita literal|cita textual)\b", question or ""):
+                    literal = evidence[0].get("chunk_text", "") or ""
+                    quoted = literal.replace("\n", "\n> ")
+                    response = "> " + quoted
 
                 dbg = {}
                 if trace:
